@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Приложение</string>
+    <string name="app_title">СалаватСтекло</string>
+    <!-- Главный экран: логин -->
+    <string name="app_subtitle">Введите логин и пароль</string>
+    <string name="hint_login">логин</string>
+    <string name="hint_password">пароль</string>
+    <string name="show_password">Показать пароль</string>
+    <string name="btn_login">Войти</string>
+    <string name="text_or">или</string>
+    <string name="btn_register">Регистрация</string>
+
+    <!-- Форма нового сотрудника: шаг 1 (проверка) -->
+    <string name="new_employee_title">Регистрация нового сотрудника</string>
+    <string name="new_employee_subtitle">Заполните данные для проверки</string>
+    <string name="label_last_name">Фамилия</string>
+    <string name="label_first_name">Имя</string>
+    <string name="label_patronymic">Отчество</string>
+    <string name="label_employee_id">Табельный номер</string>
+    <string name="label_phone">Номер телефона</string>
+    <string name="btn_submit">Проверить</string>
+
+    <!-- Шаг 2: создание логина и пароля -->
+    <string name="credentials_title">Создание аккаунта</string>
+    <string name="credentials_subtitle">Придумайте логин и пароль для входа</string>
+    <string name="label_login">Логин</string>
+    <string name="label_password">Пароль</string>
+    <string name="btn_complete_registration">Регистрация</string>
+    <string name="error_field_required">Обязательное поле</string>
+    <string name="error_invalid_phone">Введите корректный номер телефона (+7, 8 или 9XXXXXXXXX)</string>
+    <string name="form_submitted_success">Данные успешно отправлены</string>
+    <string name="employee_exists">Сотрудник с такими данными уже зарегистрирован в системе</string>
+    <string name="employee_not_found">Сотрудник не найден в базе данных</string>
+    <string name="verification_success">Данные проверены. Регистрация успешна.</string>
+    <string name="error_network">Ошибка сети. Проверьте подключение и адрес сервера.</string>
+    <string name="verifying">Проверка данных…</string>
+    <string name="employee_already_registered_in_app">Сотрудник уже зарегистрирован в приложении. Войдите через пункт \"Я уже был сотрудником\".</string>
+    <string name="profile_title">Профиль</string>
+    <string name="home_title">Главная</string>
+    <string name="home_add">Добавить</string>
+    <string name="home_notifications">Уведомления</string>
+    <string name="feed_news_placeholder">Текст новости</string>
+    <string name="feed_yesterday">Вчера</string>
+    <string name="feed_days_ago">2 д назад</string>
+    <string name="feed_empty">Пока нет новостей. Создайте первый пост!</string>
+    <string name="nav_home">Главная</string>
+    <string name="nav_news">Новости</string>
+    <string name="nav_calendar">Календарь</string>
+    <string name="nav_profile">Профиль</string>
+    <string name="create_post_title">Новый пост</string>
+    <string name="create_post_next">Далее</string>
+    <string name="create_post_close">Закрыть</string>
+    <string name="create_post_hint">Напишите что-нибудь</string>
+    <string name="create_post_photo_video">фото/видео</string>
+    <string name="create_post_drafts">черновики</string>
+    <string name="create_post_type_important">Важная</string>
+    <string name="create_post_type_everyday">Повседневная</string>
+    <string name="drafts_title">Черновики</string>
+    <string name="drafts_hint">Нажмите на черновик, чтобы продолжить редактирование. Долгое нажатие — удалить.</string>
+    <string name="drafts_empty">Черновиков пока нет</string>
+    <string name="drafts_empty_content">Пустой черновик</string>
+    <string name="drafts_updated_format">Обновлён: %1$s</string>
+    <string name="drafts_attachments_format">Вложений: %1$d</string>
+    <string name="drafts_deleted">Черновик удалён</string>
+    <string name="drafts_saved">Черновик сохранён</string>
+    <string name="attachments_added">Добавлено вложений: %1$d</string>
+    <string name="attachments_none">Нет вложений</string>
+    <string name="drafts_item_placeholder">Черновик</string>
+    <string name="drafts_item_updated_placeholder">Обновлён: 01.01.2026 10:00</string>
+    <string name="drafts_item_attachments_placeholder">Вложений: 0</string>
+    <string name="no_permission_create_posts">У вас нет прав на создание новостей</string>
+    <string name="notifications_title">Уведомления</string>
+    <string name="notifications_empty">Пока нет уведомлений</string>
+    <string name="notif_perm_title">Включить уведомления</string>
+    <string name="notif_perm_text">Чтобы вы не пропускали важные новости, включите уведомления для приложения в настройках.</string>
+    <string name="notif_perm_open_settings">Открыть настройки</string>
+    <string name="notif_perm_later">Позже</string>
+    <string name="session_expired">Сессия истекла. Войдите снова.</string>
+    <string name="security_approve">Одобрить</string>
+    <string name="security_deny">Запретить</string>
+    <string name="notif_settings_title">Настройка уведомлений</string>
+    <string name="notif_settings_saved">Настройки уведомлений сохранены</string>
+    <string name="notif_type_post">Новые новости</string>
+    <string name="notif_type_security">Безопасность аккаунта</string>
+    <string name="notif_type_test">Тестовые уведомления</string>
+    <string name="profile_employee_id_format">Табельный номер: %1$s</string>
+    <string name="profile_phone_format">Сотовый: %1$s</string>
+    <string name="logout_title">Выход из аккаунта</string>
+    <string name="logout_message">Вы действительно хотите выйти из аккаунта?</string>
+    <string name="logout_button">Выйти</string>
+</resources>
+

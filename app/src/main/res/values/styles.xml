@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="ShapeAppearanceOverlay_App_Circular">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <!-- Стиль для текста дней недели в календаре -->
+    <style name="AppCalendarWeekDayText" parent="@android:style/TextAppearance.Small">
+        <item name="android:textColor">@color/text_primary</item>
+    </style>
+
+    <!-- Стиль для текста дат в календаре -->
+    <style name="AppCalendarDateText" parent="@android:style/TextAppearance.Small">
+        <item name="android:textColor">@color/text_primary</item>
+    </style>
+
+    <!-- Стиль для CalendarView, чтобы использовать тёмный текст -->
+    <style name="AppCalendarView" parent="@android:style/Widget.CalendarView">
+        <item name="android:weekDayTextAppearance">@style/AppCalendarWeekDayText</item>
+        <item name="android:dateTextAppearance">@style/AppCalendarDateText</item>
+    </style>
+</resources>
+

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    
+    <!-- Custom colors -->
+    <color name="background_color">#FFF5F5F5</color>
+    <color name="profile_screen_bg">#FFF9F9F9</color>
+    <color name="profile_card_stroke">#FFAAAAAA</color>
+    <color name="nav_icon">#FFE3E3E3</color>
+    <color name="feed_card_bg">#FFD9D9D9</color>
+    <color name="feed_card_stroke">#FFBDBDBD</color>
+    <color name="feed_icon">#FF374957</color>
+    <color name="feed_date">#FF454545</color>
+    <color name="text_primary">#FF212121</color>
+    <color name="text_secondary">#FF757575</color>
+    <!-- Основной цвет кнопок (#206877) -->
+    <color name="button_primary">#FF206877</color>
+    <color name="button_secondary">#FF206877</color>
+    <color name="button_support">#FF206877</color>
+    <color name="ic_launcher_background">#FF2196F3</color>
+</resources>
+

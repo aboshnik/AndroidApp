@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- APK will be downloaded into cacheDir and installed via FileProvider. -->
+    <cache-path name="apk" path="." />
+</paths>
+
