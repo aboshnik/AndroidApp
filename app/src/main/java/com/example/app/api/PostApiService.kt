@@ -22,15 +22,24 @@ interface PostApiService {
         @Part("content") content: RequestBody,
         @Part("authorLogin") authorLogin: RequestBody,
         @Part("isImportant") isImportant: RequestBody,
+        @Part("pollJson") pollJson: RequestBody?,
         @Part media: MultipartBody.Part?
     ): Response<CreatePostResponse>
 
     @GET("api/post/feed")
-    suspend fun getFeed(): Response<FeedResponse>
+    suspend fun getFeed(
+        @Query("login") login: String? = null
+    ): Response<FeedResponse>
 
     @DELETE("api/post/{id}")
     suspend fun deletePost(
         @Path("id") id: Int,
         @Query("login") login: String
     ): Response<DeletePostResponse>
+
+    @POST("api/post/{id}/vote")
+    suspend fun vote(
+        @Path("id") id: Int,
+        @Body request: VoteRequest
+    ): Response<VoteResponse>
 }

@@ -3,19 +3,15 @@ package com.example.app
 import android.os.Bundle
 import android.view.KeyEvent
 import android.widget.*
-import androidx.appcompat.app.AppCompatActivity
 import com.example.app.api.ApiClient
 import com.example.app.api.NotifyTestRequest
 import com.example.app.api.NotifyUpdateRequest
 import com.example.app.api.SetPermissionsRequest
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class DeveloperConsoleActivity : AppCompatActivity() {
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
+class DeveloperConsoleActivity : BaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -177,5 +173,6 @@ class DeveloperConsoleActivity : AppCompatActivity() {
         etTerminal.setText("$normalized$line")
         etTerminal.setSelection(etTerminal.text.length)
     }
+
 }
 

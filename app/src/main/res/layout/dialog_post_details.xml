@@ -23,7 +23,7 @@
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="220dp"
+        android:layout_height="200dp"
         android:layout_marginTop="12dp"
         android:fillViewport="true">
 
@@ -34,6 +34,32 @@
             android:textColor="@color/text_primary"
             android:textSize="15sp" />
     </ScrollView>
+
+    <TextView
+        android:id="@+id/detailsPollTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/detailsPollStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/detailsPollOptions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="8dp"
+        android:visibility="gone" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnCloseDetails"

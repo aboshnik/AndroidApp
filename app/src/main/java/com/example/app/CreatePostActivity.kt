@@ -4,19 +4,19 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import android.widget.RadioButton
 import android.widget.Toast
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.app.api.ApiClient
 import com.example.app.api.CreatePostRequest
-import android.widget.RadioButton
+import com.example.app.api.PollCreateRequest
+import com.google.gson.Gson
 import com.google.android.material.textfield.TextInputEditText
-import kotlinx.coroutines.CoroutineScope
+import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -27,13 +27,12 @@ import android.webkit.MimeTypeMap
 import java.io.File
 import java.io.FileOutputStream
 
-class CreatePostActivity : AppCompatActivity() {
-
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
+class CreatePostActivity : BaseActivity() {
     private val attachments = mutableListOf<Uri>()
     private lateinit var attachmentsAdapter: AttachmentsAdapter
-    private var currentDraftId: Long? = null
     private var login: String = ""
+    private var pollData: PollCreateRequest? = null
+    private val gson = Gson()
 
     private val pickAttachments = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
         if (uris.isNullOrEmpty()) return@registerForActivityResult
@@ -50,17 +49,19 @@ class CreatePostActivity : AppCompatActivity() {
         Toast.makeText(this, getString(R.string.attachments_added, uris.size), Toast.LENGTH_SHORT).show()
     }
 
-    private val openDrafts = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+    private val openPollEditor = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode != RESULT_OK) return@registerForActivityResult
         val data = res.data ?: return@registerForActivityResult
-        currentDraftId = data.getLongExtra("draftId", 0L).takeIf { it != 0L }
-        val content = data.getStringExtra("draftContent") ?: ""
-        val uris = data.getStringArrayListExtra("draftUris") ?: arrayListOf()
-
-        findViewById<TextInputEditText>(R.id.etPostText).setText(content)
-        attachments.clear()
-        uris.mapNotNull { runCatching { Uri.parse(it) }.getOrNull() }.forEach { attachments.add(it) }
-        refreshAttachments()
+        if (data.getBooleanExtra(PollEditorActivity.EXTRA_DELETE_POLL, false)) {
+            pollData = null
+            updatePollButtonUi()
+            return@registerForActivityResult
+        }
+        val pollJson = data.getStringExtra(PollEditorActivity.EXTRA_POLL_JSON).orEmpty()
+        if (pollJson.isNotBlank()) {
+            pollData = runCatching { gson.fromJson(pollJson, PollCreateRequest::class.java) }.getOrNull()
+            updatePollButtonUi()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -92,25 +93,18 @@ class CreatePostActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             val isImportant = findViewById<RadioButton>(R.id.rbPostImportant).isChecked
-            publishPost(text, login, isImportant)
+            publishPost(text, login, isImportant, pollData)
         }
 
-        findViewById<View>(R.id.btnPhotoVideo).setOnClickListener {
-            pickAttachments.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-            )
-        }
+        val tilPost = findViewById<TextInputLayout>(R.id.tilPost)
+        tilPost.setEndIconOnClickListener { showAttachMenu() }
 
-        findViewById<View>(R.id.btnDrafts).setOnClickListener {
-            saveDraftIfNeeded()
-            openDrafts.launch(Intent(this, DraftsActivity::class.java))
-        }
+        updatePollButtonUi()
     }
 
     override fun onPause() {
         super.onPause()
         SessionManager.touch(this)
-        saveDraftIfNeeded()
     }
 
     private fun refreshAttachments() {
@@ -118,41 +112,32 @@ class CreatePostActivity : AppCompatActivity() {
         findViewById<View>(R.id.recyclerAttachments).visibility = if (attachments.isEmpty()) View.GONE else View.VISIBLE
     }
 
-    private fun saveDraftIfNeeded() {
-        val content = findViewById<TextInputEditText>(R.id.etPostText).text?.toString()?.trim().orEmpty()
-        val hasAnything = content.isNotBlank() || attachments.isNotEmpty()
-        if (!hasAnything) return
-
-        val id = currentDraftId ?: System.currentTimeMillis()
-        currentDraftId = id
-        val draft = Draft(
-            id = id,
-            content = content,
-            attachmentUris = attachments.map { it.toString() },
-            updatedAt = System.currentTimeMillis()
-        )
-        DraftStorage.upsert(this, draft)
-    }
-
-    private fun publishPost(content: String, login: String, isImportant: Boolean) {
+    private fun publishPost(content: String, login: String, isImportant: Boolean, poll: PollCreateRequest?) {
         scope.launch {
             try {
                 val response = withContext(Dispatchers.IO) {
                     val first = attachments.firstOrNull()
                     if (first == null) {
                         ApiClient.postApi.createPost(
-                            CreatePostRequest(content = content, authorLogin = login, isImportant = isImportant)
+                            CreatePostRequest(
+                                content = content,
+                                authorLogin = login,
+                                isImportant = isImportant,
+                                poll = poll
+                            )
                         )
                     } else {
                         val contentRb = content.toRequestBody("text/plain".toMediaTypeOrNull())
                         val loginRb = login.toRequestBody("text/plain".toMediaTypeOrNull())
                         val importantRb = isImportant.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+                        val pollJsonRb = poll?.let { Gson().toJson(it).toRequestBody("application/json".toMediaTypeOrNull()) }
                         val part = buildMultipartFromUri(first)
                             ?: throw IllegalStateException("Не удалось прочитать выбранный файл. Выберите файл заново.")
                         ApiClient.postApi.createPostWithMedia(
                             content = contentRb,
                             authorLogin = loginRb,
                             isImportant = importantRb,
+                            pollJson = pollJsonRb,
                             media = part
                         )
                     }
@@ -160,7 +145,6 @@ class CreatePostActivity : AppCompatActivity() {
                 val body = response.body()
                 if (response.isSuccessful && body != null && body.success) {
                     Toast.makeText(this@CreatePostActivity, body.message, Toast.LENGTH_SHORT).show()
-                    currentDraftId?.let { DraftStorage.delete(this@CreatePostActivity, it) }
                     setResult(RESULT_OK)
                     finish()
                 } else {
@@ -211,5 +195,34 @@ class CreatePostActivity : AppCompatActivity() {
 
         // 3) Safe fallback
         return ".bin"
+    }
+
+    private fun updatePollButtonUi() {
+        val status = findViewById<android.widget.TextView>(R.id.tvPollStatus)
+        if (pollData == null) {
+            status.visibility = View.GONE
+        } else {
+            status.text = "Опрос: настроен"
+            status.visibility = View.VISIBLE
+        }
+    }
+
+    private fun showAttachMenu() {
+        val items = arrayOf("Фото/видео", "Опрос")
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Добавить")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> pickAttachments.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                    )
+                    1 -> {
+                        val i = Intent(this, PollEditorActivity::class.java)
+                        pollData?.let { i.putExtra(PollEditorActivity.EXTRA_POLL_JSON, gson.toJson(it)) }
+                        openPollEditor.launch(i)
+                    }
+                }
+            }
+        safeShowDialog(builder)
     }
 }

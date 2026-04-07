@@ -20,15 +20,12 @@ import android.widget.Toast
 import com.example.app.api.ApiClient
 import com.example.app.api.EmployeeLoginRequest
 import com.google.firebase.messaging.FirebaseMessaging
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
-class MainActivity : AppCompatActivity() {
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
+class MainActivity : BaseActivity() {
     private val logTag = "MainActivityNet"
 
     private val requestNotifPermission = registerForActivityResult(
@@ -220,14 +217,15 @@ class MainActivity : AppCompatActivity() {
             putExtra("android.provider.extra.APP_PACKAGE", packageName)
             data = Uri.fromParts("package", packageName, null)
         }
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle(getString(R.string.notif_perm_title))
-            .setMessage(getString(R.string.notif_perm_text))
-            .setPositiveButton(getString(R.string.notif_perm_open_settings)) { _, _ ->
-                runCatching { startActivity(i) }
-            }
-            .setNegativeButton(getString(R.string.notif_perm_later), null)
-            .show()
+        safeShowDialog(
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(getString(R.string.notif_perm_title))
+                .setMessage(getString(R.string.notif_perm_text))
+                .setPositiveButton(getString(R.string.notif_perm_open_settings)) { _, _ ->
+                    runCatching { startActivity(i) }
+                }
+                .setNegativeButton(getString(R.string.notif_perm_later), null)
+        )
     }
 
     private fun buildErrorDetails(e: Throwable): String {
@@ -245,11 +243,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showNetworkErrorDialog(details: String) {
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Подробности ошибки сети")
-            .setMessage(details)
-            .setPositiveButton("OK", null)
-            .show()
+        safeShowDialog(
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Подробности ошибки сети")
+                .setMessage(details)
+                .setPositiveButton("OK", null)
+        )
     }
+
 }
 

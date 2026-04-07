@@ -11,8 +11,10 @@
     <ImageView
         android:id="@+id/postImage"
         android:layout_width="match_parent"
-        android:layout_height="200dp"
-        android:scaleType="centerCrop"
+        android:layout_height="wrap_content"
+        android:adjustViewBounds="true"
+        android:maxHeight="260dp"
+        android:scaleType="fitCenter"
         android:visibility="gone"
         android:background="@drawable/bg_feed_card" />
 

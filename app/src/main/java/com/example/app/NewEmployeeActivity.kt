@@ -5,18 +5,14 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import com.example.app.api.ApiClient
 import com.example.app.api.EmployeeVerifyRequest
 import com.example.app.utils.PhoneNumberUtils
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class NewEmployeeActivity : AppCompatActivity() {
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
+class NewEmployeeActivity : BaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -182,4 +178,5 @@ class NewEmployeeActivity : AppCompatActivity() {
         finish()
         return true
     }
+
 }

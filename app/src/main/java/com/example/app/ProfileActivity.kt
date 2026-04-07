@@ -8,56 +8,86 @@ import android.os.Build
 import android.util.Log
 import androidx.appcompat.app.AlertDialog
 import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import android.provider.Settings
+import coil.load
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import com.example.app.api.ApiClient
+import com.example.app.api.EmployeeProfile
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class ProfileActivity : AppCompatActivity() {
-    private val scopeJob = Job()
-    private val scope = CoroutineScope(Dispatchers.Main + scopeJob)
-    private val prefs by lazy { getSharedPreferences("profile", MODE_PRIVATE) }
+class ProfileActivity : BaseActivity() {
     private val authPrefs by lazy { getSharedPreferences("auth", MODE_PRIVATE) }
     private val logTag = "ProfileActivityNet"
 
-    private fun canShowUi(): Boolean = !(isFinishing || isDestroyed)
+    private lateinit var tvName: TextView
+    private lateinit var tvEmployeeId: TextView
+    private lateinit var tvPhone: TextView
+    private lateinit var tvPosition: TextView
+    private lateinit var tvSubdivision: TextView
+    private lateinit var tvLevelBadge: TextView
+    private lateinit var tvXpHint: TextView
+    private lateinit var pbLevelXp: ProgressBar
+    private lateinit var avatarView: ImageView
 
-    private fun safeToast(text: String, long: Boolean = false) {
-        if (!canShowUi()) return
-        Toast.makeText(this, text, if (long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
-    }
-
-    private fun safeShowDialog(builder: AlertDialog.Builder): AlertDialog? {
-        if (!canShowUi()) return null
-        return try {
-            builder.show()
-        } catch (_: android.view.WindowManager.BadTokenException) {
-            null
-        }
-    }
 
     private val pickAvatar = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+        if (uri == null) return@registerForActivityResult
+        val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+        try {
+            contentResolver.takePersistableUriPermission(uri, flags)
+        } catch (_: Exception) {
+        }
+        val login = authPrefs.getString("login", null)?.trim().orEmpty()
+        if (login.isEmpty()) {
+            safeToast("Войдите в аккаунт, чтобы сохранить фото на сервере")
+            return@registerForActivityResult
+        }
+        scope.launch {
             try {
-                contentResolver.takePersistableUriPermission(uri, flags)
-            } catch (_: Exception) {
+                val mime = contentResolver.getType(uri) ?: "image/jpeg"
+                val ext = when {
+                    mime.contains("png", ignoreCase = true) -> ".png"
+                    mime.contains("webp", ignoreCase = true) -> ".webp"
+                    mime.contains("gif", ignoreCase = true) -> ".gif"
+                    else -> ".jpg"
+                }
+                val temp = File(cacheDir, "avatar_upload$ext")
+                contentResolver.openInputStream(uri)?.use { input ->
+                    temp.outputStream().use { output -> input.copyTo(output) }
+                } ?: run {
+                    safeToast("Не удалось прочитать изображение")
+                    return@launch
+                }
+                val body = temp.asRequestBody(mime.toMediaTypeOrNull())
+                val part = MultipartBody.Part.createFormData("file", temp.name, body)
+                val resp = withContext(Dispatchers.IO) {
+                    ApiClient.employeeApi.uploadAvatar(login, part)
+                }
+                runCatching { temp.delete() }
+                val uploadBody = resp.body()
+                if (!resp.isSuccessful || uploadBody == null || !uploadBody.success) {
+                    safeToast(uploadBody?.message ?: getString(R.string.error_network), long = true)
+                    return@launch
+                }
+                loadProfileFromNetwork()
+            } catch (e: Exception) {
+                val details = buildErrorDetails(e)
+                Log.e(logTag, details, e)
+                safeToast("${getString(R.string.error_network)} $details", long = true)
             }
-            prefs.edit().putString("avatar_uri", uri.toString()).apply()
-            findViewById<ImageView>(R.id.ivAvatar).setImageURI(uri)
         }
     }
 
@@ -70,23 +100,27 @@ class ProfileActivity : AppCompatActivity() {
         val firstNameFallback = (intent.getStringExtra("firstName") ?: authPrefs.getString("firstName", "")).orEmpty()
         val phoneFallback = (intent.getStringExtra("phone") ?: authPrefs.getString("phone", "")).orEmpty()
 
-        val tvName = findViewById<TextView>(R.id.tvName)
-        val tvEmployeeId = findViewById<TextView>(R.id.tvEmployeeId)
-        val tvPhone = findViewById<TextView>(R.id.tvPhone)
-        val tvPosition = findViewById<TextView>(R.id.tvPosition)
-        val tvSubdivision = findViewById<TextView>(R.id.tvSubdivision)
+        tvName = findViewById(R.id.tvName)
+        tvEmployeeId = findViewById(R.id.tvEmployeeId)
+        tvPhone = findViewById(R.id.tvPhone)
+        tvPosition = findViewById(R.id.tvPosition)
+        tvSubdivision = findViewById(R.id.tvSubdivision)
+        tvLevelBadge = findViewById(R.id.tvLevelBadge)
+        tvXpHint = findViewById(R.id.tvXpHint)
+        pbLevelXp = findViewById(R.id.pbLevelXp)
+        avatarView = findViewById(R.id.ivAvatar)
+
+        getSharedPreferences("profile", MODE_PRIVATE).edit().remove("avatar_uri").apply()
 
         if (lastNameFallback.isNotBlank() || firstNameFallback.isNotBlank()) {
             tvName.text = "${lastNameFallback} ${firstNameFallback}".trim()
         }
         if (phoneFallback.isNotBlank()) {
-            tvPhone.text = phoneFallback
+            tvPhone.text = formatPhoneRuDisplay(phoneFallback)
         }
 
-        val avatarView = findViewById<ImageView>(R.id.ivAvatar)
-        prefs.getString("avatar_uri", null)?.let { saved ->
-            runCatching { avatarView.setImageURI(android.net.Uri.parse(saved)) }
-        }
+        bindLevelStrip(level = 1, experience = 0, xpToNext = 100)
+
         avatarView.setOnClickListener {
             pickAvatar.launch(arrayOf("image/*"))
         }
@@ -111,44 +145,70 @@ class ProfileActivity : AppCompatActivity() {
 
         setupBottomNav()
 
+        scope.launch { loadProfileFromNetwork() }
+    }
+
+    private suspend fun loadProfileFromNetwork() {
         val employeeId = (intent.getStringExtra("employeeId") ?: authPrefs.getString("employeeId", null))
         val login = (intent.getStringExtra("login") ?: authPrefs.getString("login", null))
-
-        scope.launch {
-            try {
-                val response = withContext(Dispatchers.IO) {
-                    ApiClient.employeeApi.getProfile(employeeId = employeeId, login = login)
-                }
-                val body = response.body()
-
-                if (!response.isSuccessful || body == null || !body.success || body.profile == null) {
-                    safeToast(body?.message ?: getString(R.string.error_network), long = true)
-                    return@launch
-                }
-
-                val p = body.profile
-                tvName.text = "${p.lastName} ${p.firstName}".trim()
-                tvPhone.text = p.phone
-                tvEmployeeId.text = p.employeeId
-                tvPosition.text = p.position
-                tvSubdivision.text = p.subdivision
-            } catch (e: Exception) {
-                val details = buildErrorDetails(e)
-                Log.e(logTag, details, e)
-                safeToast("${getString(R.string.error_network)} $details", long = true)
-                showNetworkErrorDialog(details)
+        try {
+            val response = withContext(Dispatchers.IO) {
+                ApiClient.employeeApi.getProfile(employeeId = employeeId, login = login)
             }
+            val body = response.body()
+
+            if (!response.isSuccessful || body == null || !body.success || body.profile == null) {
+                safeToast(body?.message ?: getString(R.string.error_network), long = true)
+                return
+            }
+
+            applyProfile(body.profile)
+        } catch (e: Exception) {
+            val details = buildErrorDetails(e)
+            Log.e(logTag, details, e)
+            safeToast("${getString(R.string.error_network)} $details", long = true)
+            showNetworkErrorDialog(details)
         }
+    }
+
+    private fun applyProfile(p: EmployeeProfile) {
+        tvName.text = "${p.lastName} ${p.firstName}".trim()
+        tvPhone.text = formatPhoneRuDisplay(p.phone)
+        tvEmployeeId.text = p.employeeId
+        tvPosition.text = p.position
+        tvSubdivision.text = p.subdivision
+        bindLevelStrip(level = p.level, experience = p.experience, xpToNext = p.xpToNext)
+        val url = p.avatarUrl?.trim()
+        if (!url.isNullOrEmpty()) {
+            avatarView.load(url) {
+                placeholder(R.drawable.ic_launcher_simple)
+                error(R.drawable.ic_launcher_simple)
+            }
+        } else {
+            avatarView.setImageResource(R.drawable.ic_launcher_simple)
+        }
+    }
+
+    private fun bindLevelStrip(level: Int, experience: Int, xpToNext: Int) {
+        tvLevelBadge.text = "Уровень $level"
+        val expInLevel = experience % 100
+        pbLevelXp.progress = expInLevel
+        tvXpHint.text = "$expInLevel / 100 опыта · ещё $xpToNext до уровня ${level + 1}"
+    }
+
+    private fun formatPhoneRuDisplay(raw: String): String {
+        val digits = raw.filter { it.isDigit() }
+        val last10 = when {
+            digits.length >= 11 && (digits[0] == '7' || digits[0] == '8') -> digits.takeLast(10)
+            digits.length == 10 -> digits
+            else -> return "+7 ••• ••• •• ••"
+        }
+        return "+7 ••• •••-${last10.substring(6, 8)}-${last10.substring(8, 10)}"
     }
 
     override fun onResume() {
         super.onResume()
         SessionManager.touch(this)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        scopeJob.cancel()
     }
 
     private fun setupBottomNav() {

@@ -6,17 +6,13 @@ import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import com.example.app.api.ApiClient
 import com.example.app.api.EmployeeVerifyRequest
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class CreateCredentialsActivity : AppCompatActivity() {
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
+class CreateCredentialsActivity : BaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -149,6 +145,7 @@ class CreateCredentialsActivity : AppCompatActivity() {
         finish()
         return true
     }
+
 }
 
 

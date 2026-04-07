@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/voterAvatarRoot"
+    android:layout_width="18dp"
+    android:layout_height="18dp"
+    android:layout_marginEnd="6dp">
+
+    <com.google.android.material.imageview.ShapeableImageView
+        android:id="@+id/ivVoterAvatar"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:scaleType="centerCrop"
+        android:src="@drawable/ic_launcher_simple"
+        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay_App_Circular" />
+
+    <TextView
+        android:id="@+id/tvVoterInitial"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:gravity="center"
+        android:textColor="@android:color/white"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:background="@drawable/bg_voter_initial_circle"
+        android:visibility="gone" />
+</FrameLayout>
+

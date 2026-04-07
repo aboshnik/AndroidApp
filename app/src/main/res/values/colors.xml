@@ -24,5 +24,15 @@
     <color name="button_secondary">#FF206877</color>
     <color name="button_support">#FF206877</color>
     <color name="ic_launcher_background">#FF2196F3</color>
+
+    <!-- Poll editor (light, company accent) -->
+    <color name="poll_editor_bg">@color/white</color>
+    <color name="poll_editor_card">@color/white</color>
+    <color name="poll_editor_divider">#FFE0E0E0</color>
+    <color name="poll_editor_text">@color/text_primary</color>
+    <color name="poll_editor_hint">@color/text_secondary</color>
+    <color name="poll_editor_accent">@color/button_primary</color>
+    <color name="poll_editor_card_stroke">@color/feed_card_stroke</color>
+    <color name="poll_editor_accent_bg">#FFE6F3F7</color>
 </resources>
 

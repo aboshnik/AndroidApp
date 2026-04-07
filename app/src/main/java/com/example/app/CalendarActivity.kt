@@ -12,9 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AlertDialog
 import com.example.app.api.ApiClient
 import com.example.app.api.EmployeeWorkSchedule
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -23,8 +21,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-class CalendarActivity : AppCompatActivity() {
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
+class CalendarActivity : BaseActivity() {
     private var currentLogin: String = ""
     private var currentEmployeeId: String = ""
     private var currentLastName: String = ""
@@ -36,6 +33,7 @@ class CalendarActivity : AppCompatActivity() {
     private lateinit var calendarGrid: GridLayout
     private var shownYear: Int = 0
     private var shownMonth: Int = 0
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -258,11 +256,12 @@ class CalendarActivity : AppCompatActivity() {
         tvTitle.text = "Дата: $titleDate"
         tvMessage.text = message
 
+        if (!canShowUi()) return
         val dialog = AlertDialog.Builder(this)
             .setView(dialogView)
             .create()
         btnOk.setOnClickListener { dialog.dismiss() }
-        dialog.show()
+        runCatching { dialog.show() }
     }
 
     private fun parseIsoDate(raw: String?): Date? {
@@ -290,5 +289,6 @@ class CalendarActivity : AppCompatActivity() {
         super.onResume()
         SessionManager.touch(this)
     }
+
 }
 

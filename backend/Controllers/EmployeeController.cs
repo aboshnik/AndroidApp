@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using EmployeeApi.Services;
@@ -12,10 +13,12 @@ namespace EmployeeApi.Controllers;
 public class EmployeeController : ControllerBase
 {
     private readonly IConfiguration _configuration;
+    private readonly IWebHostEnvironment _env;
 
-    public EmployeeController(IConfiguration configuration)
+    public EmployeeController(IConfiguration configuration, IWebHostEnvironment env)
     {
         _configuration = configuration;
+        _env = env;
     }
 
     [HttpPost("verify")]
@@ -214,20 +217,25 @@ public class EmployeeController : ControllerBase
         {
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
+            await EnsureAppUserProfileTableAsync(connection);
 
             const string sql = @"
                 SELECT TOP 1
-                    COALESCE(TRY_CONVERT(nvarchar(200), [Фамилия]), '')        AS LastName,
-                    COALESCE(TRY_CONVERT(nvarchar(200), [Имя]), '')           AS FirstName,
-                    COALESCE(TRY_CONVERT(nvarchar(200), [Сотовый]), '')       AS Phone,
-                    COALESCE(TRY_CONVERT(nvarchar(50),  [ТабельныйНомер]), '') AS EmployeeId,
-                    COALESCE(TRY_CONVERT(nvarchar(200), [Должность]), '')     AS Position,
-                    COALESCE(TRY_CONVERT(nvarchar(200), [Подразделение]), '') AS Subdivision
-                FROM [Lexema_Кадры_ЛичнаяКарточка]
+                    COALESCE(TRY_CONVERT(nvarchar(200), C.[Фамилия]), '')        AS LastName,
+                    COALESCE(TRY_CONVERT(nvarchar(200), C.[Имя]), '')           AS FirstName,
+                    COALESCE(TRY_CONVERT(nvarchar(200), C.[Сотовый]), '')       AS Phone,
+                    COALESCE(TRY_CONVERT(nvarchar(50),  C.[ТабельныйНомер]), '') AS EmployeeId,
+                    COALESCE(TRY_CONVERT(nvarchar(200), C.[Должность]), '')     AS Position,
+                    COALESCE(TRY_CONVERT(nvarchar(200), C.[Подразделение]), '') AS Subdivision,
+                    COALESCE(TRY_CONVERT(nvarchar(100), C.[Логин]), '')         AS CardLogin,
+                    ISNULL(P.[Experience], 0)                                     AS Experience,
+                    P.[AvatarFileName]                                            AS AvatarFileName
+                FROM [Lexema_Кадры_ЛичнаяКарточка] C
+                LEFT JOIN [App_UserProfile] P ON P.[Login] = C.[Логин]
                 WHERE
-                    (@EmployeeId <> '' AND TRY_CONVERT(nvarchar(50), [ТабельныйНомер]) = @EmployeeId)
+                    (@EmployeeId <> '' AND TRY_CONVERT(nvarchar(50), C.[ТабельныйНомер]) = @EmployeeId)
                     OR
-                    (@Login <> '' AND [Логин] = @Login);";
+                    (@Login <> '' AND C.[Логин] = @Login);";
 
             await using var cmd = new SqlCommand(sql, connection);
             cmd.Parameters.AddWithValue("@EmployeeId", employeeId ?? string.Empty);
@@ -239,13 +247,24 @@ public class EmployeeController : ControllerBase
                 return Ok(new ProfileResponse(true, "Сотрудник не найден", null));
             }
 
+            var experience = reader.IsDBNull(7) ? 0 : Convert.ToInt32(reader.GetValue(7));
+            var avatarFileName = reader.IsDBNull(8) ? null : reader.GetString(8);
+            var level = Math.Max(1, 1 + experience / 100);
+            var xpToNext = ComputeXpToNextWithinLevel(experience);
+
+            var avatarUrl = BuildAvatarPublicUrl(avatarFileName);
+
             var profile = new EmployeeProfile(
                 LastName: reader.GetString(0),
                 FirstName: reader.GetString(1),
                 Phone: reader.GetString(2),
                 EmployeeId: reader.GetString(3),
                 Position: reader.GetString(4),
-                Subdivision: reader.GetString(5)
+                Subdivision: reader.GetString(5),
+                AvatarUrl: avatarUrl,
+                Level: level,
+                Experience: experience,
+                XpToNext: xpToNext
             );
 
             return Ok(new ProfileResponse(true, "OK", profile));
@@ -254,6 +273,169 @@ public class EmployeeController : ControllerBase
         {
             return StatusCode(500, new ProfileResponse(false, $"Ошибка БД: {ex.Message}", null));
         }
+    }
+
+    [HttpPost("avatar")]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    public async Task<ActionResult<AvatarUploadResponse>> UploadAvatar([FromQuery] string? login, IFormFile? file)
+    {
+        if (string.IsNullOrWhiteSpace(login) || file == null || file.Length == 0)
+        {
+            return BadRequest(new AvatarUploadResponse(false, "Неверные данные запроса", null));
+        }
+
+        login = login.Trim();
+        var ext = Path.GetExtension(file.FileName);
+        if (string.IsNullOrWhiteSpace(ext))
+        {
+            ext = ".jpg";
+        }
+
+        ext = ext.ToLowerInvariant();
+        if (ext is not (".jpg" or ".jpeg" or ".png" or ".webp" or ".gif"))
+        {
+            return BadRequest(new AvatarUploadResponse(false, "Допустимы изображения: jpg, png, webp, gif", null));
+        }
+
+        if (file.Length > 5 * 1024 * 1024)
+        {
+            return BadRequest(new AvatarUploadResponse(false, "Файл больше 5 МБ", null));
+        }
+
+        var connectionString = _configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrEmpty(connectionString))
+        {
+            return StatusCode(500, new AvatarUploadResponse(false, "Не настроено подключение к базе данных", null));
+        }
+
+        try
+        {
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync();
+            await EnsureAppUserProfileTableAsync(connection);
+
+            const string existsSql = @"
+                SELECT TOP 1 1
+                FROM [Lexema_Кадры_ЛичнаяКарточка]
+                WHERE [Логин] = @Login AND ISNULL([ЗарегВПриложении], 0) = 1;";
+            await using (var existsCmd = new SqlCommand(existsSql, connection))
+            {
+                existsCmd.Parameters.AddWithValue("@Login", login);
+                var ok = await existsCmd.ExecuteScalarAsync();
+                if (ok == null || ok == DBNull.Value)
+                {
+                    return Ok(new AvatarUploadResponse(false, "Пользователь не найден", null));
+                }
+            }
+
+            var safeLogin = new string(login.Where(char.IsLetterOrDigit).ToArray());
+            if (string.IsNullOrEmpty(safeLogin))
+            {
+                safeLogin = "user";
+            }
+
+            var fileName = $"{safeLogin}_{Guid.NewGuid():N}{ext}";
+            var dir = Path.Combine(_env.WebRootPath ?? "", "uploads", "avatars");
+            Directory.CreateDirectory(dir);
+
+            var oldName = await GetAvatarFileNameAsync(connection, login);
+            var physicalPath = Path.Combine(dir, fileName);
+            await using (var fs = new FileStream(physicalPath, FileMode.Create, FileAccess.Write))
+            {
+                await file.CopyToAsync(fs);
+            }
+
+            if (!string.IsNullOrWhiteSpace(oldName))
+            {
+                var oldPath = Path.Combine(dir, oldName);
+                if (!string.Equals(oldPath, physicalPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        if (System.IO.File.Exists(oldPath))
+                        {
+                            System.IO.File.Delete(oldPath);
+                        }
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
+            }
+
+            await UpsertAvatarFileNameAsync(connection, login, fileName);
+
+            var url = BuildAvatarPublicUrl(fileName);
+            return Ok(new AvatarUploadResponse(true, "OK", url));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new AvatarUploadResponse(false, $"Ошибка: {ex.Message}", null));
+        }
+    }
+
+    private string? BuildAvatarPublicUrl(string? avatarFileName)
+    {
+        if (string.IsNullOrWhiteSpace(avatarFileName))
+        {
+            return null;
+        }
+
+        var req = Request;
+        var baseUrl = $"{req.Scheme}://{req.Host}{req.PathBase}";
+        return $"{baseUrl}/uploads/avatars/{Uri.EscapeDataString(avatarFileName)}";
+    }
+
+    private static int ComputeXpToNextWithinLevel(int experience)
+    {
+        var mod = experience % 100;
+        return mod == 0 && experience > 0 ? 100 : 100 - mod;
+    }
+
+    private static async Task EnsureAppUserProfileTableAsync(SqlConnection connection)
+    {
+        const string sql = @"
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'App_UserProfile')
+            CREATE TABLE [App_UserProfile] (
+                [Login] NVARCHAR(100) NOT NULL PRIMARY KEY,
+                [AvatarFileName] NVARCHAR(260) NULL,
+                [Experience] INT NOT NULL DEFAULT 0,
+                [UpdatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+            );";
+        await using var cmd = new SqlCommand(sql, connection);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<string?> GetAvatarFileNameAsync(SqlConnection connection, string login)
+    {
+        const string sql = @"SELECT [AvatarFileName] FROM [App_UserProfile] WHERE [Login] = @Login;";
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@Login", login);
+        var o = await cmd.ExecuteScalarAsync();
+        if (o == null || o == DBNull.Value)
+        {
+            return null;
+        }
+
+        var s = o.ToString();
+        return string.IsNullOrWhiteSpace(s) ? null : s;
+    }
+
+    private static async Task UpsertAvatarFileNameAsync(SqlConnection connection, string login, string fileName)
+    {
+        const string sql = @"
+            IF EXISTS (SELECT 1 FROM [App_UserProfile] WHERE [Login] = @Login)
+                UPDATE [App_UserProfile]
+                SET [AvatarFileName] = @FileName, [UpdatedAt] = GETUTCDATE()
+                WHERE [Login] = @Login;
+            ELSE
+                INSERT INTO [App_UserProfile] ([Login], [AvatarFileName], [Experience], [UpdatedAt])
+                VALUES (@Login, @FileName, 0, GETUTCDATE());";
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@Login", login);
+        cmd.Parameters.AddWithValue("@FileName", fileName);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     [HttpPost("login")]
@@ -914,7 +1096,6 @@ public class EmployeeController : ControllerBase
         string patronymic,
         string employeeId)
     {
-        .
         const string sql = @"
             WITH X AS (
                 SELECT
@@ -989,9 +1170,15 @@ public record EmployeeProfile(
     string Phone,
     string EmployeeId,
     string Position,
-    string Subdivision);
+    string Subdivision,
+    string? AvatarUrl,
+    int Level,
+    int Experience,
+    int XpToNext);
 
 public record ProfileResponse(bool Success, string Message, EmployeeProfile? Profile);
+
+public record AvatarUploadResponse(bool Success, string Message, string? AvatarUrl);
 
 public record LoginRequest(string Login, string Password, string? DeviceId, string? DeviceName);
 

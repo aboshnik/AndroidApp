@@ -79,7 +79,7 @@
             android:parentActivityName=".HomeActivity"
             android:theme="@style/Theme.App" />
         <activity
-            android:name=".DraftsActivity"
+            android:name=".PollEditorActivity"
             android:exported="false"
             android:parentActivityName=".CreatePostActivity"
             android:theme="@style/Theme.App" />

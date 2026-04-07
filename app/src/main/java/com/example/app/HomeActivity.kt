@@ -8,19 +8,18 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.app.api.ApiClient
-import kotlinx.coroutines.CoroutineScope
+import com.example.app.api.PollItem
+import com.example.app.api.PostItem
+import com.example.app.api.VoteRequest
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class HomeActivity : AppCompatActivity() {
-
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
+class HomeActivity : BaseActivity() {
     private lateinit var recyclerFeed: RecyclerView
     private lateinit var feedProgress: ProgressBar
     private lateinit var feedEmpty: TextView
@@ -34,6 +33,8 @@ class HomeActivity : AppCompatActivity() {
     private var currentFirstName: String = ""
     private var currentPhone: String = ""
     private var currentCanCreatePosts: Boolean = false
+    private var feedAutoRefreshJob: kotlinx.coroutines.Job? = null
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,7 +87,8 @@ class HomeActivity : AppCompatActivity() {
         val canCreatePosts = currentCanCreatePosts
         adapter = FeedAdapter(
             canManagePosts = canCreatePosts,
-            onDeletePost = { post -> deletePost(post.id) }
+            onDeletePost = { post -> deletePost(post.id) },
+            onVote = { postId, optionId, onDone -> vote(postId, optionId, onDone) }
         )
         recyclerFeed.adapter = adapter
 
@@ -103,6 +105,7 @@ class HomeActivity : AppCompatActivity() {
         if (!SessionManager.requireActive(this)) return
         loadFeed()
         loadNotificationsBadge()
+        startFeedAutoRefresh()
 
         // Re-schedule in case app was restored without a fresh login
         val login = getSharedPreferences("auth", MODE_PRIVATE).getString("login", "")?.trim().orEmpty()
@@ -110,6 +113,13 @@ class HomeActivity : AppCompatActivity() {
             NotificationsWorker.schedule(this)
         }
     }
+
+    override fun onPause() {
+        super.onPause()
+        feedAutoRefreshJob?.cancel()
+        feedAutoRefreshJob = null
+    }
+
 
     private fun openNotifications() {
         val login = currentLogin
@@ -165,15 +175,15 @@ class HomeActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadFeed() {
-        feedProgress.visibility = View.VISIBLE
+    private fun loadFeed(showSpinner: Boolean = true) {
+        if (showSpinner) feedProgress.visibility = View.VISIBLE
         feedEmpty.visibility = View.GONE
         recyclerFeed.visibility = View.VISIBLE
 
         scope.launch {
             try {
                 val response = withContext(Dispatchers.IO) {
-                    ApiClient.postApi.getFeed()
+                    ApiClient.postApi.getFeed(login = currentLogin.takeIf { it.isNotBlank() })
                 }
                 feedProgress.visibility = View.GONE
                 val body = response.body()
@@ -198,6 +208,40 @@ class HomeActivity : AppCompatActivity() {
                 showNetworkErrorDialog(details)
             }
         }
+    }
+
+    private fun startFeedAutoRefresh() {
+        if (feedAutoRefreshJob?.isActive == true) return
+        feedAutoRefreshJob = scope.launch {
+            while (true) {
+                delay(15000)
+                loadFeed(showSpinner = false)
+            }
+        }
+    }
+
+    private fun updatePostPollInList(postId: Int, poll: PollItem?) {
+        if (poll == null) return
+        val current = adapter.currentList
+        if (current.isEmpty()) return
+        val updated = current.map { p ->
+            if (p.id == postId) {
+                PostItem(
+                    id = p.id,
+                    authorLogin = p.authorLogin,
+                    authorName = p.authorName,
+                    content = p.content,
+                    createdAt = p.createdAt,
+                    imageUrl = p.imageUrl,
+                    isImportant = p.isImportant,
+                    expiresAt = p.expiresAt,
+                    likesCount = p.likesCount,
+                    commentsCount = p.commentsCount,
+                    poll = poll
+                )
+            } else p
+        }
+        adapter.submitList(updated)
     }
 
     private fun deletePost(postId: Int) {
@@ -230,6 +274,35 @@ class HomeActivity : AppCompatActivity() {
         }
     }
 
+    private fun vote(postId: Int, optionId: Int, onDone: (PollItem?) -> Unit) {
+        val login = currentLogin.trim()
+        if (login.isBlank()) {
+            Toast.makeText(this, getString(R.string.error_network), Toast.LENGTH_SHORT).show()
+            onDone(null)
+            return
+        }
+        scope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    ApiClient.postApi.vote(postId, VoteRequest(login = login, optionId = optionId))
+                }
+                val body = response.body()
+                if (!response.isSuccessful || body == null || !body.success) {
+                    Toast.makeText(this@HomeActivity, body?.message ?: getString(R.string.error_network), Toast.LENGTH_SHORT).show()
+                    onDone(null)
+                    return@launch
+                }
+                Toast.makeText(this@HomeActivity, body.message, Toast.LENGTH_SHORT).show()
+                onDone(body.poll)
+                updatePostPollInList(postId, body.poll)
+                loadFeed()
+            } catch (e: Exception) {
+                Toast.makeText(this@HomeActivity, "${getString(R.string.error_network)} ${e.message}", Toast.LENGTH_SHORT).show()
+                onDone(null)
+            }
+        }
+    }
+
     private fun buildErrorDetails(e: Throwable): String {
         var t: Throwable? = e
         val chain = mutableListOf<String>()
@@ -245,11 +318,12 @@ class HomeActivity : AppCompatActivity() {
     }
 
     private fun showNetworkErrorDialog(details: String) {
-        AlertDialog.Builder(this)
-            .setTitle("Подробности ошибки сети")
-            .setMessage(details)
-            .setPositiveButton("OK", null)
-            .show()
+        safeShowDialog(
+            AlertDialog.Builder(this)
+                .setTitle("Подробности ошибки сети")
+                .setMessage(details)
+                .setPositiveButton("OK", null)
+        )
     }
 
     private fun openProfile() {

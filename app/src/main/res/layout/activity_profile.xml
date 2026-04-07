@@ -28,11 +28,11 @@
                 android:id="@+id/tvProfileTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:gravity="center"
                 android:text="Профиль"
                 android:textColor="@color/text_primary"
-                android:textSize="16sp"
-                android:gravity="center"
-                android:layout_marginBottom="8dp" />
+                android:textSize="16sp" />
 
             <!-- Верхняя карточка: аватарка, ФИО и телефон -->
             <LinearLayout
@@ -60,15 +60,15 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="16dp"
-                    android:orientation="vertical"
-                    android:layout_weight="1">
+                    android:layout_weight="1"
+                    android:orientation="vertical">
 
                     <TextView
                         android:id="@+id/tvName"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="20sp"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="@color/text_primary"
+                        android:textSize="20sp" />
 
                     <TextView
                         android:id="@+id/tvPhone"
@@ -77,6 +77,43 @@
                         android:layout_marginTop="4dp"
                         android:textColor="@color/text_primary"
                         android:textSize="16sp" />
+
+                    <LinearLayout
+                        android:id="@+id/levelStrip"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:orientation="vertical"
+                        android:paddingHorizontal="10dp"
+                        android:paddingVertical="8dp"
+                        android:background="@drawable/bg_profile_card">
+
+                        <TextView
+                            android:id="@+id/tvLevelBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="@color/text_primary"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <ProgressBar
+                            android:id="@+id/pbLevelXp"
+                            style="?android:attr/progressBarStyleHorizontal"
+                            android:layout_width="match_parent"
+                            android:layout_height="8dp"
+                            android:layout_marginTop="6dp"
+                            android:max="100"
+                            android:progress="0"
+                            android:progressTint="@color/button_primary" />
+
+                        <TextView
+                            android:id="@+id/tvXpHint"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+                    </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
 
@@ -178,15 +215,16 @@
             </LinearLayout>
 
             <!-- Заголовок "Предпочтения" -->
+
+            <!-- Карточка настроек -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
                 android:text="Предпочтения"
-                android:textSize="15sp"
-                android:textColor="@color/text_primary" />
+                android:textColor="@color/text_primary"
+                android:textSize="15sp" />
 
-            <!-- Карточка настроек -->
             <LinearLayout
                 android:id="@+id/cardSettings"
                 android:layout_width="match_parent"

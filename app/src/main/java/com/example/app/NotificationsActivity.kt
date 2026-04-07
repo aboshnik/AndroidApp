@@ -5,21 +5,16 @@ import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.app.api.ApiClient
 import com.example.app.api.MarkReadRequest
 import com.example.app.api.SecurityDecisionRequest
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class NotificationsActivity : AppCompatActivity() {
-
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
+class NotificationsActivity : BaseActivity() {
     private lateinit var recycler: RecyclerView
     private lateinit var progress: ProgressBar
     private lateinit var empty: TextView
@@ -121,5 +116,6 @@ class NotificationsActivity : AppCompatActivity() {
         super.onResume()
         SessionManager.touch(this)
     }
+
 }
 
