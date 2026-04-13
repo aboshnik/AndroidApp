@@ -1,34 +1,27 @@
 package com.example.app
 
 import android.content.Intent
-import android.content.ActivityNotFoundException
-import android.net.Uri
 import android.os.Bundle
-import android.os.Build
 import android.util.Log
 import androidx.appcompat.app.AlertDialog
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.FileProvider
-import android.provider.Settings
 import coil.load
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import com.example.app.api.ApiClient
 import com.example.app.api.EmployeeProfile
 import java.io.File
-import java.util.Locale
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.example.app.chats.ChatsActivity
 
 class ProfileActivity : BaseActivity() {
+    override fun swipeTabIndex(): Int = 3
     private val authPrefs by lazy { getSharedPreferences("auth", MODE_PRIVATE) }
     private val logTag = "ProfileActivityNet"
 
@@ -41,6 +34,8 @@ class ProfileActivity : BaseActivity() {
     private lateinit var tvXpHint: TextView
     private lateinit var pbLevelXp: ProgressBar
     private lateinit var avatarView: ImageView
+    private lateinit var techAdminBadge: ImageView
+    private var canUseDevConsole: Boolean = false
 
 
     private val pickAvatar = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -109,12 +104,15 @@ class ProfileActivity : BaseActivity() {
         tvXpHint = findViewById(R.id.tvXpHint)
         pbLevelXp = findViewById(R.id.pbLevelXp)
         avatarView = findViewById(R.id.ivAvatar)
+        techAdminBadge = findViewById(R.id.ivTechAdminBadge)
 
         getSharedPreferences("profile", MODE_PRIVATE).edit().remove("avatar_uri").apply()
 
         if (lastNameFallback.isNotBlank() || firstNameFallback.isNotBlank()) {
             tvName.text = "${lastNameFallback} ${firstNameFallback}".trim()
         }
+        val isTechAdmin = authPrefs.getBoolean("isTechAdmin", false)
+        techAdminBadge.visibility = if (isTechAdmin) android.view.View.VISIBLE else android.view.View.GONE
         if (phoneFallback.isNotBlank()) {
             tvPhone.text = formatPhoneRuDisplay(phoneFallback)
         }
@@ -124,26 +122,34 @@ class ProfileActivity : BaseActivity() {
         avatarView.setOnClickListener {
             pickAvatar.launch(arrayOf("image/*"))
         }
-
-        findViewById<android.view.View>(R.id.rowNotificationSettings).setOnClickListener {
-            openNotificationSettingsDialog()
+        findViewById<android.view.View>(R.id.btnAvatarEdit).setOnClickListener {
+            pickAvatar.launch(arrayOf("image/*"))
         }
 
-        findViewById<android.view.View>(R.id.rowAppUpdate).setOnClickListener {
-            checkAndUpdateApp()
+        val rowLogout = findViewById<android.view.View>(R.id.rowLogout)
+        val rowCalendar = findViewById<android.view.View>(R.id.rowCalendar)
+
+        listOf(rowCalendar, rowLogout).forEach {
+            attachPressAnimation(it)
         }
 
-        findViewById<android.view.View>(R.id.rowLogout).setOnClickListener {
+        rowCalendar.setOnClickListener {
+            startActivity(Intent(this, CalendarActivity::class.java))
+        }
+        rowLogout.setOnClickListener {
             confirmLogout()
         }
-        val rowDeveloperConsole = findViewById<android.view.View>(R.id.rowDeveloperConsole)
-        val canUseDevConsole = intent.getBooleanExtra("canUseDevConsole", authPrefs.getBoolean("canUseDevConsole", false))
-        rowDeveloperConsole.visibility = if (canUseDevConsole) android.view.View.VISIBLE else android.view.View.GONE
-        rowDeveloperConsole.setOnClickListener {
-            startActivity(Intent(this, DeveloperConsoleActivity::class.java))
-        }
 
-        setupBottomNav()
+        findViewById<android.view.View>(R.id.navHome).setOnClickListener {
+            startActivity(Intent(this, HomeActivity::class.java))
+        }
+        findViewById<android.view.View>(R.id.navChats).setOnClickListener {
+            startActivity(Intent(this, ChatsActivity::class.java))
+        }
+        findViewById<android.view.View>(R.id.navSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        findViewById<android.view.View>(R.id.navProfile).setOnClickListener { }
 
         scope.launch { loadProfileFromNetwork() }
     }
@@ -209,60 +215,20 @@ class ProfileActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         SessionManager.touch(this)
+        val employeeId = authPrefs.getString("employeeId", "")?.trim().orEmpty()
+        startChatsUnreadBadgeAutoRefresh(employeeId = employeeId, badgeViewId = R.id.navChatsBadge)
     }
 
-    private fun setupBottomNav() {
-        findViewById<android.view.View>(R.id.navHome).setOnClickListener {
-            val i = Intent(this, HomeActivity::class.java)
-            i.putExtra("employeeId", intent.getStringExtra("employeeId") ?: authPrefs.getString("employeeId", "") ?: "")
-            i.putExtra("login", intent.getStringExtra("login") ?: authPrefs.getString("login", "") ?: "")
-            i.putExtra("lastName", intent.getStringExtra("lastName") ?: authPrefs.getString("lastName", "") ?: "")
-            i.putExtra("firstName", intent.getStringExtra("firstName") ?: authPrefs.getString("firstName", "") ?: "")
-            i.putExtra("phone", intent.getStringExtra("phone") ?: authPrefs.getString("phone", "") ?: "")
-            i.putExtra("canCreatePosts", intent.getBooleanExtra("canCreatePosts", authPrefs.getBoolean("canCreatePosts", false)))
-            i.putExtra("canUseDevConsole", intent.getBooleanExtra("canUseDevConsole", authPrefs.getBoolean("canUseDevConsole", false)))
-            startActivity(i)
-            finish()
-        }
-        findViewById<android.view.View>(R.id.navCalendar).setOnClickListener {
-            val i = Intent(this, CalendarActivity::class.java)
-            i.putExtra("employeeId", intent.getStringExtra("employeeId") ?: authPrefs.getString("employeeId", "") ?: "")
-            i.putExtra("login", intent.getStringExtra("login") ?: authPrefs.getString("login", "") ?: "")
-            i.putExtra("lastName", intent.getStringExtra("lastName") ?: authPrefs.getString("lastName", "") ?: "")
-            i.putExtra("firstName", intent.getStringExtra("firstName") ?: authPrefs.getString("firstName", "") ?: "")
-            i.putExtra("phone", intent.getStringExtra("phone") ?: authPrefs.getString("phone", "") ?: "")
-            i.putExtra("canCreatePosts", intent.getBooleanExtra("canCreatePosts", authPrefs.getBoolean("canCreatePosts", false)))
-            i.putExtra("canUseDevConsole", intent.getBooleanExtra("canUseDevConsole", authPrefs.getBoolean("canUseDevConsole", false)))
-            startActivity(i)
-        }
-        findViewById<android.view.View>(R.id.navProfile).setOnClickListener { }
+    override fun onPause() {
+        super.onPause()
+        stopChatsUnreadBadgeAutoRefresh()
     }
+
+    // applyForceUpdateUiState removed
 
     override fun onSupportNavigateUp(): Boolean {
         finish()
         return true
-    }
-
-    private fun openNotificationSettingsDialog() {
-        val labels = arrayOf(
-            getString(R.string.notif_type_post),
-            getString(R.string.notif_type_security),
-            getString(R.string.notif_type_test)
-        )
-        val checked = NotificationSettingsManager.getStates(this).copyOf()
-
-        safeShowDialog(
-            AlertDialog.Builder(this)
-                .setTitle(getString(R.string.notif_settings_title))
-                .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
-                    if (which in checked.indices) checked[which] = isChecked
-                }
-                .setPositiveButton(android.R.string.ok) { _, _ ->
-                    NotificationSettingsManager.saveStates(this, checked)
-                    safeToast(getString(R.string.notif_settings_saved))
-                }
-                .setNegativeButton(android.R.string.cancel, null)
-        )
     }
 
     private fun confirmLogout() {
@@ -284,48 +250,6 @@ class ProfileActivity : BaseActivity() {
         }
         startActivity(i)
         finish()
-    }
-
-    private fun checkAndUpdateApp() {
-        val currentVersionCode = BuildConfig.VERSION_CODE
-
-        scope.launch {
-            try {
-                val response = withContext(Dispatchers.IO) {
-                    ApiClient.appUpdateApi.getLatest()
-                }
-                val body = response.body()
-                if (!response.isSuccessful || body == null) {
-                    safeToast(getString(R.string.error_network), long = true)
-                    return@launch
-                }
-
-                val latestVersion = body.versionCode
-                val apkUrl = body.apkUrl
-
-                if (apkUrl.isNullOrBlank() || latestVersion <= currentVersionCode) {
-                    safeToast("У вас актуальная версия приложения")
-                    return@launch
-                }
-
-                safeShowDialog(
-                    AlertDialog.Builder(this@ProfileActivity)
-                        .setTitle("Обновление приложения")
-                        .setMessage("Доступна новая версия. Обновить сейчас?")
-                        .setPositiveButton("Обновить") { _, _ ->
-                            scope.launch {
-                                beginDownloadAndInstall(apkUrl, latestVersion)
-                            }
-                        }
-                        .setNegativeButton(android.R.string.cancel, null)
-                )
-            } catch (e: Exception) {
-                val details = buildErrorDetails(e)
-                Log.e(logTag, details, e)
-                safeToast("${getString(R.string.error_network)} $details", long = true)
-                showNetworkErrorDialog(details)
-            }
-        }
     }
 
     private fun buildErrorDetails(e: Throwable): String {
@@ -351,133 +275,21 @@ class ProfileActivity : BaseActivity() {
         )
     }
 
-    private suspend fun beginDownloadAndInstall(apkUrl: String, versionCode: Int) {
-        if (!ensureUnknownSourcesInstallAllowed()) {
-            safeToast("Разрешите установку из неизвестных источников и нажмите ещё раз.", long = true)
-            return
-        }
-
-        val progress = safeShowDialog(
-            AlertDialog.Builder(this)
-                .setTitle("Обновление приложения")
-                .setMessage("Скачивание обновления…")
-                .setCancelable(false)
-        )
-
-        try {
-            val apkFile = downloadApkToCache(apkUrl, versionCode)
-            val mb = (apkFile.length().toDouble() / (1024.0 * 1024.0))
-            progress?.setMessage(String.format(Locale("ru"), "Скачано %.2f МБ. Запуск установки…", mb))
-            installApkFile(apkFile)
-        } catch (e: Exception) {
-            val details = buildErrorDetails(e)
-            Log.e(logTag, "Update failed: $details", e)
-            safeToast("Ошибка обновления: $details", long = true)
-            showNetworkErrorDialog(details)
-        } finally {
-            runCatching { progress?.dismiss() }
-        }
-    }
-
-    private fun ensureUnknownSourcesInstallAllowed(): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val canRequest = packageManager.canRequestPackageInstalls()
-            if (!canRequest) {
-                val uri = Uri.parse("package:$packageName")
-                val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, uri)
-                startActivity(intent)
-                return false
-            }
-        }
-        return true
-    }
-
-    private suspend fun downloadApkToCache(apkUrl: String, versionCode: Int): File = withContext(Dispatchers.IO) {
-        val client = OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(180, TimeUnit.SECONDS)
-            .writeTimeout(180, TimeUnit.SECONDS)
-            .callTimeout(240, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .build()
-        val request = Request.Builder().url(apkUrl).build()
-
-        val cacheFile = File(cacheDir, "app-latest-update-$versionCode.apk")
-        if (cacheFile.exists() && cacheFile.length() > 1024 * 1024) {
-            runCatching {
-                val magic = ByteArray(2)
-                cacheFile.inputStream().use { ins ->
-                    if (ins.read(magic) == 2 &&
-                        magic[0] == 'P'.code.toByte() &&
-                        magic[1] == 'K'.code.toByte()
-                    ) {
-                        return@withContext cacheFile
-                    }
+    private fun attachPressAnimation(v: android.view.View) {
+        v.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    view.animate().scaleX(0.98f).scaleY(0.98f).setDuration(90).start()
+                }
+                android.view.MotionEvent.ACTION_UP,
+                android.view.MotionEvent.ACTION_CANCEL -> {
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
                 }
             }
-        }
-
-        var lastError: Exception? = null
-        repeat(2) { attempt ->
-            try {
-                client.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        throw IllegalStateException("HTTP ${resp.code}")
-                    }
-                    val body = resp.body ?: throw IllegalStateException("Empty response body")
-                    body.byteStream().use { input ->
-                        cacheFile.outputStream().use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                }
-                lastError = null
-                return@repeat
-            } catch (e: Exception) {
-                lastError = e
-                if (attempt == 0) {
-                    runCatching { cacheFile.delete() }
-                }
-            }
-        }
-        lastError?.let { throw it }
-
-        val magic = ByteArray(2)
-        cacheFile.inputStream().use { ins ->
-            if (ins.read(magic) != 2) {
-                throw IllegalStateException("Пустой файл обновления")
-            }
-        }
-        if (magic[0] != 'P'.code.toByte() || magic[1] != 'K'.code.toByte()) {
-            throw IllegalStateException("Сервер вернул не APK-файл. Проверьте app-latest.bin")
-        }
-
-        cacheFile
-    }
-
-    private fun installApkFile(apkFile: File) {
-        val uri = FileProvider.getUriForFile(
-            this,
-            "${BuildConfig.APPLICATION_ID}.fileprovider",
-            apkFile
-        )
-
-        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-            putExtra(Intent.EXTRA_RETURN_RESULT, true)
-        }
-        try {
-            startActivity(intent)
-        } catch (_: ActivityNotFoundException) {
-            val fallback = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(fallback)
+            false
         }
     }
+
 }
 
 

@@ -1,67 +1,69 @@
 package com.example.app
 
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
-import android.widget.RadioButton
-import android.widget.Toast
-import androidx.activity.result.PickVisualMediaRequest
+import android.widget.EditText
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
+import coil.load
 import com.example.app.api.ApiClient
 import com.example.app.api.CreatePostRequest
 import com.example.app.api.PollCreateRequest
-import com.google.gson.Gson
-import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import android.webkit.MimeTypeMap
-import java.io.File
-import java.io.FileOutputStream
 
 class CreatePostActivity : BaseActivity() {
-    private val attachments = mutableListOf<Uri>()
-    private lateinit var attachmentsAdapter: AttachmentsAdapter
-    private var login: String = ""
-    private var pollData: PollCreateRequest? = null
-    private val gson = Gson()
+    private companion object {
+        const val MAX_POST_TEXT_LENGTH = 3333
+        const val MAX_POST_IMAGES = 15
+        const val MAX_POST_VIDEOS = 5
+    }
 
-    private val pickAttachments = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
+    private val attachments = mutableListOf<Uri>()
+    private var pollDraft: PollCreateRequest? = null
+
+    private lateinit var etPostText: EditText
+    private lateinit var mediaContainer: View
+    private lateinit var mediaTop: ImageView
+    private lateinit var mediaBottomRow: LinearLayout
+    private lateinit var mediaBottomLeft: ImageView
+    private lateinit var mediaBottomRight: ImageView
+    private lateinit var mediaMore: TextView
+    private lateinit var pollChip: TextView
+
+    private val pickMedia = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNullOrEmpty()) return@registerForActivityResult
-        uris.forEach { uri ->
-            runCatching {
-                contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
-            if (!attachments.contains(uri)) attachments.add(uri)
+        val picked = uris.toList()
+        val imageCount = picked.count { !isVideoUri(it) }
+        val videoCount = picked.count { isVideoUri(it) }
+        if (imageCount > MAX_POST_IMAGES) {
+            safeToast("Максимум $MAX_POST_IMAGES фото в одной новости", long = true)
+            return@registerForActivityResult
         }
-        refreshAttachments()
-        Toast.makeText(this, getString(R.string.attachments_added, uris.size), Toast.LENGTH_SHORT).show()
+        if (videoCount > MAX_POST_VIDEOS) {
+            safeToast("Максимум $MAX_POST_VIDEOS видео в одной новости", long = true)
+            return@registerForActivityResult
+        }
+        attachments.clear()
+        attachments.addAll(picked)
+        bindMediaPreview()
     }
 
     private val openPollEditor = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode != RESULT_OK) return@registerForActivityResult
-        val data = res.data ?: return@registerForActivityResult
-        if (data.getBooleanExtra(PollEditorActivity.EXTRA_DELETE_POLL, false)) {
-            pollData = null
-            updatePollButtonUi()
-            return@registerForActivityResult
-        }
-        val pollJson = data.getStringExtra(PollEditorActivity.EXTRA_POLL_JSON).orEmpty()
-        if (pollJson.isNotBlank()) {
-            pollData = runCatching { gson.fromJson(pollJson, PollCreateRequest::class.java) }.getOrNull()
-            updatePollButtonUi()
-        }
+        val json = res.data?.getStringExtra(PollEditorActivity.EXTRA_POLL_JSON).orEmpty()
+        if (json.isBlank()) return@registerForActivityResult
+        pollDraft = runCatching {
+            com.google.gson.Gson().fromJson(json, PollCreateRequest::class.java)
+        }.getOrNull()
+        bindPollChip()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,160 +71,146 @@ class CreatePostActivity : BaseActivity() {
         if (!SessionManager.requireActive(this)) return
         setContentView(R.layout.activity_create_post)
 
-        login = intent.getStringExtra("login") ?: ""
+        etPostText = findViewById(R.id.etPostText)
+        mediaContainer = findViewById(R.id.postMediaContainer)
+        mediaTop = findViewById(R.id.postMediaTop)
+        mediaBottomRow = findViewById(R.id.postMediaBottomRow)
+        mediaBottomLeft = findViewById(R.id.postMediaBottomLeft)
+        mediaBottomRight = findViewById(R.id.postMediaBottomRight)
+        mediaMore = findViewById(R.id.postMediaMoreOverlay)
+        pollChip = findViewById(R.id.tvPollChip)
+
+        findViewById<View>(R.id.btnCreatePostBack).setOnClickListener { finish() }
+        findViewById<View>(R.id.btnAttachMedia).setOnClickListener { pickMedia.launch(arrayOf("image/*", "video/*")) }
+        findViewById<View>(R.id.btnAttachPoll).setOnClickListener {
+            val i = android.content.Intent(this, PollEditorActivity::class.java)
+            pollDraft?.let { i.putExtra(PollEditorActivity.EXTRA_POLL_JSON, com.google.gson.Gson().toJson(it)) }
+            openPollEditor.launch(i)
+        }
+        findViewById<View>(R.id.btnPublishPost).setOnClickListener { publishPost() }
+        findViewById<View>(R.id.btnClearPoll).setOnClickListener {
+            pollDraft = null
+            bindPollChip()
+        }
+
+        bindMediaPreview()
+        bindPollChip()
+    }
+
+    private fun bindPollChip() {
+        pollChip.visibility = if (pollDraft == null) View.GONE else View.VISIBLE
+        pollChip.text = if (pollDraft == null) "" else "Опрос: ${pollDraft?.question.orEmpty()}"
+    }
+
+    private fun bindMediaPreview() {
+        if (attachments.isEmpty()) {
+            mediaContainer.visibility = View.GONE
+            return
+        }
+        mediaContainer.visibility = View.VISIBLE
+        val list = attachments.toList()
+        mediaTop.load(list[0]) { crossfade(true) }
+        if (list.size == 1) {
+            mediaBottomRow.visibility = View.GONE
+            return
+        }
+        mediaBottomRow.visibility = View.VISIBLE
+        mediaBottomLeft.load(list.getOrNull(1))
+        mediaBottomRight.load(list.getOrNull(2))
+        val more = list.size - 3
+        mediaMore.visibility = if (more > 0) View.VISIBLE else View.GONE
+        mediaMore.text = if (more > 0) "+$more" else ""
+    }
+
+    private fun publishPost() {
+        val auth = getSharedPreferences("auth", MODE_PRIVATE)
+        val login = auth.getString("login", "")?.trim().orEmpty()
+        val content = etPostText.text?.toString()?.trim().orEmpty()
         if (login.isBlank()) {
-            Toast.makeText(this, getString(R.string.error_network), Toast.LENGTH_SHORT).show()
-            finish()
+            safeToast(getString(R.string.error_network))
+            return
+        }
+        if (content.isBlank() && attachments.isEmpty() && pollDraft == null) {
+            safeToast("Добавьте текст, медиа или опрос")
+            return
+        }
+        if (content.length > MAX_POST_TEXT_LENGTH) {
+            safeToast("Максимум $MAX_POST_TEXT_LENGTH символа(ов) в тексте новости", long = true)
+            return
+        }
+        val imageCount = attachments.count { !isVideoUri(it) }
+        val videoCount = attachments.count { isVideoUri(it) }
+        if (imageCount > MAX_POST_IMAGES) {
+            safeToast("Максимум $MAX_POST_IMAGES фото в одной новости", long = true)
+            return
+        }
+        if (videoCount > MAX_POST_VIDEOS) {
+            safeToast("Максимум $MAX_POST_VIDEOS видео в одной новости", long = true)
             return
         }
 
-        val recycler = findViewById<RecyclerView>(R.id.recyclerAttachments)
-        attachmentsAdapter = AttachmentsAdapter(attachments) { uri ->
-            attachments.remove(uri)
-            refreshAttachments()
-        }
-        recycler.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
-        recycler.adapter = attachmentsAdapter
-
-        findViewById<View>(R.id.btnClose).setOnClickListener { finish() }
-
-        findViewById<View>(R.id.btnNext).setOnClickListener {
-            val text = findViewById<TextInputEditText>(R.id.etPostText).text?.toString()?.trim()
-            if (text.isNullOrBlank()) {
-                Toast.makeText(this, getString(R.string.create_post_hint), Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            val isImportant = findViewById<RadioButton>(R.id.rbPostImportant).isChecked
-            publishPost(text, login, isImportant, pollData)
-        }
-
-        val tilPost = findViewById<TextInputLayout>(R.id.tilPost)
-        tilPost.setEndIconOnClickListener { showAttachMenu() }
-
-        updatePollButtonUi()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        SessionManager.touch(this)
-    }
-
-    private fun refreshAttachments() {
-        attachmentsAdapter.replaceAll(attachments.toList())
-        findViewById<View>(R.id.recyclerAttachments).visibility = if (attachments.isEmpty()) View.GONE else View.VISIBLE
-    }
-
-    private fun publishPost(content: String, login: String, isImportant: Boolean, poll: PollCreateRequest?) {
+        findViewById<View>(R.id.btnPublishPost).isEnabled = false
         scope.launch {
             try {
-                val response = withContext(Dispatchers.IO) {
-                    val first = attachments.firstOrNull()
-                    if (first == null) {
+                val resp = withContext(Dispatchers.IO) {
+                    if (attachments.isEmpty()) {
                         ApiClient.postApi.createPost(
                             CreatePostRequest(
                                 content = content,
                                 authorLogin = login,
-                                isImportant = isImportant,
-                                poll = poll
+                                isImportant = false,
+                                poll = pollDraft
                             )
                         )
                     } else {
-                        val contentRb = content.toRequestBody("text/plain".toMediaTypeOrNull())
-                        val loginRb = login.toRequestBody("text/plain".toMediaTypeOrNull())
-                        val importantRb = isImportant.toString().toRequestBody("text/plain".toMediaTypeOrNull())
-                        val pollJsonRb = poll?.let { Gson().toJson(it).toRequestBody("application/json".toMediaTypeOrNull()) }
-                        val part = buildMultipartFromUri(first)
-                            ?: throw IllegalStateException("Не удалось прочитать выбранный файл. Выберите файл заново.")
+                        val contentBody = content.toRequestBody("text/plain".toMediaTypeOrNull())
+                        val loginBody = login.toRequestBody("text/plain".toMediaTypeOrNull())
+                        val importantBody = "false".toRequestBody("text/plain".toMediaTypeOrNull())
+                        val pollJsonBody = pollDraft?.let {
+                            com.google.gson.Gson().toJson(it).toRequestBody("application/json".toMediaTypeOrNull())
+                        }
+                        val parts = attachments.mapIndexedNotNull { idx, uri ->
+                            val mime = contentResolver.getType(uri) ?: "image/jpeg"
+                            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@mapIndexedNotNull null
+                            val rb = bytes.toRequestBody(mime.toMediaTypeOrNull())
+                            MultipartBody.Part.createFormData("media", "media_$idx", rb)
+                        }
                         ApiClient.postApi.createPostWithMedia(
-                            content = contentRb,
-                            authorLogin = loginRb,
-                            isImportant = importantRb,
-                            pollJson = pollJsonRb,
-                            media = part
+                            content = contentBody,
+                            authorLogin = loginBody,
+                            isImportant = importantBody,
+                            pollJson = pollJsonBody,
+                            media = parts
                         )
                     }
                 }
-                val body = response.body()
-                if (response.isSuccessful && body != null && body.success) {
-                    Toast.makeText(this@CreatePostActivity, body.message, Toast.LENGTH_SHORT).show()
-                    setResult(RESULT_OK)
-                    finish()
-                } else {
-                    Toast.makeText(
-                        this@CreatePostActivity,
-                        body?.message ?: getString(R.string.error_network),
-                        Toast.LENGTH_LONG
-                    ).show()
+                val body = resp.body()
+                if (!resp.isSuccessful || body == null || !body.success) {
+                    safeToast(body?.message ?: getString(R.string.error_network), long = true)
+                    return@launch
                 }
+                safeToast("Новость опубликована")
+                setResult(RESULT_OK)
+                finish()
             } catch (e: Exception) {
-                Toast.makeText(
-                    this@CreatePostActivity,
-                    "${getString(R.string.error_network)} ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
+                safeToast("${getString(R.string.error_network)} ${e.message}", long = true)
+            } finally {
+                findViewById<View>(R.id.btnPublishPost).isEnabled = true
             }
         }
     }
 
-    private fun buildMultipartFromUri(uri: Uri): MultipartBody.Part? {
-        val mime = contentResolver.getType(uri)
-        val ext = resolveExtension(uri, mime)
-        val finalMime = mime ?: MimeTypeMap.getSingleton()
-            .getMimeTypeFromExtension(ext.removePrefix(".").lowercase())
-            ?: "application/octet-stream"
-
-        val tmp = File(cacheDir, "upload_${System.currentTimeMillis()}$ext")
-        contentResolver.openInputStream(uri)?.use { input ->
-            FileOutputStream(tmp).use { out -> input.copyTo(out) }
-        } ?: return null
-
-        val rb = tmp.asRequestBody(finalMime.toMediaTypeOrNull())
-        return MultipartBody.Part.createFormData("media", tmp.name, rb)
-    }
-
-    private fun resolveExtension(uri: Uri, mime: String?): String {
-        // 1) By mime when available
-        if (!mime.isNullOrBlank()) {
-            val byMime = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)?.trim()
-            if (!byMime.isNullOrBlank()) return ".${byMime.lowercase()}"
-            if (mime.startsWith("video/")) return ".mp4"
-            if (mime.startsWith("image/")) return ".jpg"
-        }
-
-        // 2) By URI path (works for many gallery providers)
-        val pathExt = MimeTypeMap.getFileExtensionFromUrl(uri.toString())?.trim()
-        if (!pathExt.isNullOrBlank()) return ".${pathExt.lowercase()}"
-
-        // 3) Safe fallback
-        return ".bin"
-    }
-
-    private fun updatePollButtonUi() {
-        val status = findViewById<android.widget.TextView>(R.id.tvPollStatus)
-        if (pollData == null) {
-            status.visibility = View.GONE
-        } else {
-            status.text = "Опрос: настроен"
-            status.visibility = View.VISIBLE
-        }
-    }
-
-    private fun showAttachMenu() {
-        val items = arrayOf("Фото/видео", "Опрос")
-        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Добавить")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> pickAttachments.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                    )
-                    1 -> {
-                        val i = Intent(this, PollEditorActivity::class.java)
-                        pollData?.let { i.putExtra(PollEditorActivity.EXTRA_POLL_JSON, gson.toJson(it)) }
-                        openPollEditor.launch(i)
-                    }
-                }
-            }
-        safeShowDialog(builder)
+    private fun isVideoUri(uri: Uri): Boolean {
+        val mime = contentResolver.getType(uri)?.lowercase().orEmpty()
+        if (mime.startsWith("video/")) return true
+        val path = uri.lastPathSegment?.lowercase().orEmpty()
+        return path.endsWith(".mp4") ||
+            path.endsWith(".mov") ||
+            path.endsWith(".mkv") ||
+            path.endsWith(".webm") ||
+            path.endsWith(".avi") ||
+            path.endsWith(".m4v") ||
+            path.endsWith(".3gp")
     }
 }
+

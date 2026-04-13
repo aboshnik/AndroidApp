@@ -27,3 +27,13 @@ backend/obj/
 backend/*firebase-adminsdk*.json
 app/google-services.json
 
+backend/temp_build/
+app/release/
+backend/wwwroot/apk/
+backend/wwwroot/uploads/
+backend/temp_build/
+backend/_b*/
+backend/wwwroot/apk/
+backend/wwwroot/uploads/
+app/release/
+*firebase-adminsdk*.json

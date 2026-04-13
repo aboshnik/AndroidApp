@@ -37,6 +37,14 @@ object ApiClient {
         retrofit.create(NotificationsApiService::class.java)
     }
 
+    val authApi: AuthApiService by lazy {
+        retrofit.create(AuthApiService::class.java)
+    }
+
+    val chatApi: ChatApiService by lazy {
+        retrofit.create(ChatApiService::class.java)
+    }
+
     val securityApi: SecurityApiService by lazy {
         retrofit.create(SecurityApiService::class.java)
     }

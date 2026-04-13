@@ -23,7 +23,7 @@ interface PostApiService {
         @Part("authorLogin") authorLogin: RequestBody,
         @Part("isImportant") isImportant: RequestBody,
         @Part("pollJson") pollJson: RequestBody?,
-        @Part media: MultipartBody.Part?
+        @Part media: List<MultipartBody.Part>
     ): Response<CreatePostResponse>
 
     @GET("api/post/feed")

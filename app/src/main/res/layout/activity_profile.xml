@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/profile_screen_bg">
+    android:background="@color/poll_editor_bg">
 
     <ScrollView
         android:id="@+id/scrollContent"
@@ -14,7 +14,7 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toTopOf="@+id/bottomNav">
+        app:layout_constraintBottom_toTopOf="@id/bottomNavProfile">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -28,11 +28,12 @@
                 android:id="@+id/tvProfileTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:gravity="center"
+                android:layout_marginBottom="6dp"
+                android:gravity="start"
                 android:text="Профиль"
                 android:textColor="@color/text_primary"
-                android:textSize="16sp" />
+                android:textSize="20sp"
+                android:textStyle="bold" />
 
             <!-- Верхняя карточка: аватарка, ФИО и телефон -->
             <LinearLayout
@@ -42,19 +43,38 @@
                 android:orientation="horizontal"
                 android:padding="12dp"
                 android:layout_marginTop="8dp"
-                android:background="@drawable/bg_profile_card"
+                android:background="@drawable/bg_poll_editor_card"
                 android:gravity="center_vertical">
 
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:id="@+id/ivAvatar"
+                <FrameLayout
                     android:layout_width="108dp"
-                    android:layout_height="108dp"
-                    android:src="@drawable/ic_launcher_simple"
-                    android:scaleType="centerCrop"
-                    app:strokeColor="@color/button_primary"
-                    app:strokeWidth="2dp"
-                    app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay_App_Circular"
-                    android:contentDescription="@string/profile_title" />
+                    android:layout_height="108dp">
+
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:id="@+id/ivAvatar"
+                        android:layout_width="108dp"
+                        android:layout_height="108dp"
+                        android:src="@drawable/ic_launcher_simple"
+                        android:scaleType="centerCrop"
+                        app:strokeColor="@color/button_primary"
+                        app:strokeWidth="2dp"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay_App_Circular"
+                        android:contentDescription="@string/profile_title" />
+
+                    <ImageView
+                        android:id="@+id/btnAvatarEdit"
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:layout_gravity="bottom|end"
+                        android:layout_margin="4dp"
+                        android:background="@drawable/bg_poll_editor_icon_circle"
+                        android:padding="6dp"
+                        android:src="@android:drawable/ic_menu_camera"
+                        android:tint="@color/button_primary"
+                        android:contentDescription="Сменить аватар"
+                        android:clickable="true"
+                        android:focusable="true" />
+                </FrameLayout>
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -63,20 +83,38 @@
                     android:layout_weight="1"
                     android:orientation="vertical">
 
-                    <TextView
-                        android:id="@+id/tvName"
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/text_primary"
-                        android:textSize="20sp" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tvName"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="@color/text_primary"
+                            android:textSize="22sp"
+                            android:textStyle="bold" />
+
+                        <ImageView
+                            android:id="@+id/ivTechAdminBadge"
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
+                            android:layout_marginStart="8dp"
+                            android:src="@android:drawable/ic_menu_manage"
+                            android:tint="@color/button_primary"
+                            android:contentDescription="Техадмин"
+                            android:visibility="gone" />
+                    </LinearLayout>
 
                     <TextView
                         android:id="@+id/tvPhone"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:textColor="@color/text_primary"
-                        android:textSize="16sp" />
+                        android:textColor="@color/text_secondary"
+                        android:textSize="15sp" />
 
                     <LinearLayout
                         android:id="@+id/levelStrip"
@@ -86,7 +124,7 @@
                         android:orientation="vertical"
                         android:paddingHorizontal="10dp"
                         android:paddingVertical="8dp"
-                        android:background="@drawable/bg_profile_card">
+                        android:background="@drawable/bg_profile_level_strip">
 
                         <TextView
                             android:id="@+id/tvLevelBadge"
@@ -117,6 +155,8 @@
                 </LinearLayout>
             </LinearLayout>
 
+            <!-- Force update UI removed вместе со старым модулем -->
+
             <!-- Заголовок "Данные" -->
             <TextView
                 android:layout_width="wrap_content"
@@ -133,95 +173,97 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:layout_marginTop="8dp"
-                android:background="@drawable/bg_profile_card">
+                android:background="@android:color/transparent">
 
                 <!-- Должность -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="56dp"
                     android:gravity="center_vertical"
-                    android:background="@color/profile_screen_bg"
-                    android:paddingHorizontal="12dp">
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_profile_action_row"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="8dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Должность:"
-                        android:textColor="@color/text_primary" />
+                        android:text="Должность"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
 
                     <TextView
                         android:id="@+id/tvPosition"
-                        android:layout_width="0dp"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="6dp"
-                        android:textColor="@color/text_secondary" />
+                        android:layout_marginTop="2dp"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp" />
                 </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="@color/profile_card_stroke" />
 
                 <!-- Таб. Номер -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="56dp"
+                    android:layout_marginTop="8dp"
                     android:gravity="center_vertical"
-                    android:background="@color/profile_screen_bg"
-                    android:paddingHorizontal="12dp">
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_profile_action_row"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="8dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Таб. Номер:"
-                        android:textColor="@color/text_primary" />
+                        android:text="Табельный номер"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
 
                     <TextView
                         android:id="@+id/tvEmployeeId"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="4dp"
-                        android:textColor="@color/text_secondary" />
+                        android:layout_marginTop="2dp"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp" />
                 </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="@color/profile_card_stroke" />
 
                 <!-- Подразделение -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="56dp"
+                    android:layout_marginTop="8dp"
                     android:gravity="center_vertical"
-                    android:background="@color/profile_screen_bg"
-                    android:paddingHorizontal="12dp">
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_profile_action_row"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="8dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Подразделение:"
-                        android:textColor="@color/text_primary" />
+                        android:text="Подразделение"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
 
                     <TextView
                         android:id="@+id/tvSubdivision"
-                        android:layout_width="0dp"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="6dp"
-                        android:textColor="@color/text_secondary" />
+                        android:layout_marginTop="2dp"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp" />
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- Заголовок "Предпочтения" -->
-
-            <!-- Карточка настроек -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
-                android:text="Предпочтения"
+                android:text="Аккаунт"
                 android:textColor="@color/text_primary"
                 android:textSize="15sp" />
 
@@ -234,123 +276,95 @@
                 android:background="@drawable/bg_profile_card">
 
                 <LinearLayout
-                    android:id="@+id/rowNotificationSettings"
+                    android:id="@+id/rowCalendar"
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"
+                    android:layout_height="48dp"
                     android:gravity="center_vertical"
                     android:paddingHorizontal="12dp"
+                    android:layout_marginHorizontal="8dp"
+                    android:layout_marginTop="8dp"
                     android:clickable="true"
                     android:focusable="true"
-                    android:background="?attr/selectableItemBackground">
+                    android:background="@drawable/bg_profile_action_row">
 
                     <ImageView
                         android:layout_width="20dp"
                         android:layout_height="20dp"
-                        android:src="@drawable/ic_settings_notifications"
-                        android:contentDescription="Настройки и уведомления"
+                        android:src="@drawable/ic_nav_calendar"
+                        android:contentDescription="Календарь"
                         app:tint="@color/button_primary" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="10dp"
-                        android:text="Настройки уведомлений"
+                        android:text="Календарь"
                         android:textColor="@color/text_primary" />
-                </LinearLayout>
 
-                <LinearLayout
-                    android:id="@+id/rowAppUpdate"
-                    android:layout_width="match_parent"
-                    android:layout_height="40dp"
-                    android:gravity="center_vertical"
-                    android:paddingHorizontal="12dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:background="?attr/selectableItemBackground">
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
 
                     <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_settings_theme"
-                        android:contentDescription="Обновление приложения"
-                        app:tint="@color/button_primary" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="10dp"
-                        android:text="Обновить приложение"
-                        android:textColor="@color/text_primary" />
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="@color/text_secondary" />
                 </LinearLayout>
 
                 <LinearLayout
                     android:id="@+id/rowLogout"
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"
+                    android:layout_height="48dp"
                     android:gravity="center_vertical"
                     android:paddingHorizontal="12dp"
+                    android:layout_marginHorizontal="8dp"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="8dp"
                     android:clickable="true"
                     android:focusable="true"
-                    android:background="?attr/selectableItemBackground">
+                    android:background="@drawable/bg_profile_action_row">
 
                     <ImageView
                         android:layout_width="20dp"
                         android:layout_height="20dp"
                         android:src="@android:drawable/ic_lock_power_off"
                         android:contentDescription="Выход из аккаунта"
-                        app:tint="@color/button_primary" />
+                        app:tint="#C62828" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="10dp"
                         android:text="Выйти из аккаунта"
-                        android:textColor="@color/text_primary" />
-                </LinearLayout>
+                        android:textColor="#C62828" />
 
-                <LinearLayout
-                    android:id="@+id/rowDeveloperConsole"
-                    android:layout_width="match_parent"
-                    android:layout_height="40dp"
-                    android:gravity="center_vertical"
-                    android:paddingHorizontal="12dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:background="?attr/selectableItemBackground">
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
 
                     <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@android:drawable/ic_menu_manage"
-                        android:contentDescription="Консоль разработчика"
-                        app:tint="@color/button_primary" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="10dp"
-                        android:text="Консоль разработчика"
-                        android:textColor="@color/text_primary" />
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="#C62828" />
                 </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="@color/profile_card_stroke" />
 
             </LinearLayout>
 
         </LinearLayout>
     </ScrollView>
 
-    <!-- Нижняя панель навигации -->
     <LinearLayout
-        android:id="@+id/bottomNav"
+        android:id="@+id/bottomNavProfile"
         android:layout_width="0dp"
-        android:layout_height="72dp"
-        android:background="@color/button_primary"
+        android:layout_height="64dp"
         android:orientation="horizontal"
         android:gravity="center"
+        android:paddingHorizontal="10dp"
+        android:background="@drawable/bg_bottom_nav"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -362,48 +376,101 @@
             android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp">
+            android:paddingVertical="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless">
 
             <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
+                android:id="@+id/navHomeIcon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:src="@drawable/ic_nav_home"
-                android:contentDescription="Главная"
-                app:tint="@color/nav_icon" />
+                android:tint="@color/text_secondary"
+                android:contentDescription="Главная" />
 
             <TextView
+                android:id="@+id/navHomeText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="Главная"
-                android:textColor="@android:color/white"
+                android:textColor="@color/text_secondary"
                 android:textSize="11sp" />
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/navCalendar"
+            android:id="@+id/navChats"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp">
+            android:paddingVertical="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless">
 
-            <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:src="@drawable/ic_nav_calendar"
-                android:contentDescription="Календарь"
-                app:tint="@color/nav_icon" />
+            <FrameLayout
+                android:layout_width="28dp"
+                android:layout_height="24dp">
+
+                <ImageView
+                    android:id="@+id/navChatsIcon"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_nav_mail"
+                    android:tint="@color/text_secondary"
+                    android:contentDescription="Чаты" />
+
+                <TextView
+                    android:id="@+id/navChatsBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="16dp"
+                    android:minWidth="16dp"
+                    android:layout_gravity="top|end"
+                    android:gravity="center"
+                    android:paddingHorizontal="4dp"
+                    android:text="1"
+                    android:textColor="@android:color/white"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/bg_thread_badge"
+                    android:visibility="gone" />
+            </FrameLayout>
 
             <TextView
+                android:id="@+id/navChatsText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Календарь"
-                android:textColor="@android:color/white"
+                android:text="Чаты"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/navSettings"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingVertical="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <ImageView
+                android:id="@+id/navSettingsIcon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_nav_settings"
+                android:tint="@color/text_secondary"
+                android:contentDescription="Настройки" />
+
+            <TextView
+                android:id="@+id/navSettingsText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Настройки"
+                android:textColor="@color/text_secondary"
                 android:textSize="11sp" />
         </LinearLayout>
 
@@ -414,26 +481,27 @@
             android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp">
+            android:paddingVertical="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless">
 
             <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
+                android:id="@+id/navProfileIcon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:src="@drawable/ic_nav_profile"
-                android:contentDescription="Профиль"
-                app:tint="@color/nav_icon" />
+                android:tint="@color/button_primary"
+                android:contentDescription="Профиль" />
 
             <TextView
+                android:id="@+id/navProfileText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="Профиль"
-                android:textColor="@android:color/white"
+                android:textColor="@color/button_primary"
                 android:textStyle="bold"
                 android:textSize="11sp" />
         </LinearLayout>
-
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

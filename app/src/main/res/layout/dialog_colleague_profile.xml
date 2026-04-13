@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#0F1B29">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="220dp"
+        android:background="#445364">
+
+        <ImageView
+            android:id="@+id/btnCloseColleagueProfile"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="10dp"
+            android:padding="8dp"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:tint="@android:color/white"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Закрыть" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:paddingTop="20dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="12dp">
+
+            <ImageView
+                android:id="@+id/ivColleagueProfileAvatar"
+                android:layout_width="100dp"
+                android:layout_height="100dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_launcher_simple"
+                android:background="@drawable/bg_poll_editor_icon_circle" />
+
+            <TextView
+                android:id="@+id/tvColleagueProfileName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center"
+                android:textColor="@android:color/white"
+                android:textSize="24sp"
+                android:textStyle="bold"
+                android:text="Имя Фамилия" />
+
+            <TextView
+                android:id="@+id/tvColleagueProfileStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center"
+                android:textColor="#D5E2F0"
+                android:textSize="16sp"
+                android:text="в сети недавно" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:background="#2F3C4B">
+
+        <TextView
+            android:id="@+id/btnColleagueWrite"
+            android:layout_width="0dp"
+            android:layout_height="64dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="Написать"
+            android:textColor="@android:color/white"
+            android:textSize="14sp"
+            android:background="#3C4A59" />
+
+        <TextView
+            android:id="@+id/btnColleagueCall"
+            android:layout_width="0dp"
+            android:layout_height="64dp"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:gravity="center"
+            android:text="Позвонить"
+            android:textColor="@android:color/white"
+            android:textSize="14sp"
+            android:background="#3C4A59" />
+
+        <TextView
+            android:id="@+id/btnColleagueAddContact"
+            android:layout_width="0dp"
+            android:layout_height="64dp"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:gravity="center"
+            android:text="В контакты"
+            android:textColor="@android:color/white"
+            android:textSize="14sp"
+            android:background="#3C4A59" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="16dp">
+
+        <TextView
+            android:id="@+id/tvColleagueProfileSubtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:text="login • 12345" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="Аккаунт"
+            android:textColor="#8AA0B7"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tvColleagueProfilePhone"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:text="+7 ..." />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="Телефон"
+            android:textColor="#8AA0B7"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tvColleagueProfilePosition"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:text="Должность" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="Должность"
+            android:textColor="#8AA0B7"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+</LinearLayout>

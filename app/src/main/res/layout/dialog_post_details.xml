@@ -1,77 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="16dp"
-    android:background="@android:color/white">
-
-    <ImageView
-        android:id="@+id/detailsImage"
-        android:layout_width="match_parent"
-        android:layout_height="220dp"
-        android:scaleType="centerCrop"
-        android:visibility="gone"
-        android:background="@drawable/bg_feed_card" />
-
-    <VideoView
-        android:id="@+id/detailsVideo"
-        android:layout_width="match_parent"
-        android:layout_height="220dp"
-        android:visibility="gone" />
-
-    <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="200dp"
-        android:layout_marginTop="12dp"
-        android:fillViewport="true">
-
-        <TextView
-            android:id="@+id/detailsText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_primary"
-            android:textSize="15sp" />
-    </ScrollView>
-
-    <TextView
-        android:id="@+id/detailsPollTitle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:textStyle="bold"
-        android:textColor="@color/text_primary"
-        android:visibility="gone" />
-
-    <TextView
-        android:id="@+id/detailsPollStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:textColor="@color/text_secondary"
-        android:textSize="13sp"
-        android:visibility="gone" />
+    android:fillViewport="true"
+    android:overScrollMode="ifContentScrolls">
 
     <LinearLayout
-        android:id="@+id/detailsPollOptions"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginTop="8dp"
-        android:visibility="gone" />
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="16dp">
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnCloseDetails"
-        style="@style/Widget.MaterialComponents.Button"
-        android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:layout_marginTop="12dp"
-        android:text="Закрыть"
-        android:textAllCaps="false"
-        android:textColor="@android:color/white"
-        app:backgroundTint="@color/button_primary"
-        app:cornerRadius="8dp" />
+        <LinearLayout
+            android:id="@+id/postDetailsMediaList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:showDividers="none" />
 
-</LinearLayout>
-
+        <TextView
+            android:id="@+id/postDetailsText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp"
+            android:lineSpacingMultiplier="1.1"
+            android:textIsSelectable="true" />
+    </LinearLayout>
+</ScrollView>

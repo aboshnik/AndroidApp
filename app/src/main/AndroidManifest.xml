@@ -48,53 +48,52 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
-        <activity
-            android:name=".NewEmployeeActivity"
-            android:exported="false"
-            android:parentActivityName=".MainActivity"
-            android:theme="@style/Theme.App" />
-        <activity
-            android:name=".CreateCredentialsActivity"
-            android:exported="false"
-            android:parentActivityName=".MainActivity"
-            android:theme="@style/Theme.App" />
+        <receiver
+            android:name=".ChatNotificationActionReceiver"
+            android:exported="false" />
         <activity
             android:name=".ProfileActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity"
             android:theme="@style/Theme.App" />
         <activity
+            android:name=".CalendarActivity"
+            android:exported="false"
+            android:theme="@style/Theme.App" />
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.App" />
+        <activity
             android:name=".HomeActivity"
             android:exported="false"
-            android:parentActivityName=".MainActivity"
             android:theme="@style/Theme.App" />
         <activity
             android:name=".CreatePostActivity"
             android:exported="false"
-            android:parentActivityName=".HomeActivity"
-            android:theme="@style/Theme.App" />
-        <activity
-            android:name=".CalendarActivity"
-            android:exported="false"
-            android:parentActivityName=".HomeActivity"
             android:theme="@style/Theme.App" />
         <activity
             android:name=".PollEditorActivity"
             android:exported="false"
-            android:parentActivityName=".CreatePostActivity"
-            android:theme="@style/Theme.App" />
-        <activity
-            android:name=".NotificationsActivity"
-            android:exported="false"
-            android:parentActivityName=".HomeActivity"
-            android:theme="@style/Theme.App" />
-        <activity
-            android:name=".DeveloperConsoleActivity"
-            android:exported="false"
-            android:parentActivityName=".ProfileActivity"
             android:theme="@style/Theme.App" />
         <activity
             android:name=".MediaViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.App" />
+
+        <activity
+            android:name=".RegisterActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity"
+            android:theme="@style/Theme.App" />
+
+        <activity
+            android:name=".chats.ChatsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.App" />
+
+        <activity
+            android:name=".chats.ChatActivity"
             android:exported="false"
             android:theme="@style/Theme.App" />
     </application>

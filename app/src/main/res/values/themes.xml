@@ -11,6 +11,16 @@
         <item name="android:fontFamily">@font/gotham_bold</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
+        <item name="alertDialogTheme">@style/ThemeOverlay.App.Dialog</item>
     </style>
+
+    <style name="ThemeOverlay.App.Dialog" parent="ThemeOverlay.AppCompat.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/bg_dialog_surface</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="textColorAlertDialogListItem">@color/text_primary</item>
+    </style>
+
 </resources>
 

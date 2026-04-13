@@ -34,5 +34,17 @@
     <color name="poll_editor_accent">@color/button_primary</color>
     <color name="poll_editor_card_stroke">@color/feed_card_stroke</color>
     <color name="poll_editor_accent_bg">#FFE6F3F7</color>
+    <!-- Список чатов: исходящее сообщение (как в Telegram) -->
+    <color name="thread_outgoing_check">#FF5DADE2</color>
+    <color name="thread_outgoing_check_unread">#FF9E9E9E</color>
+    <color name="thread_item_selected_bg">#332196F3</color>
+
+    <!-- Telegram-like (dark) -->
+    <color name="tg_bg">#FF0E1621</color>
+    <color name="tg_surface">#FF17212B</color>
+    <color name="tg_divider">#1FFFFFFF</color>
+    <color name="tg_text">#FFF5F5F5</color>
+    <color name="tg_text_secondary">#FF8E9AA7</color>
+    <color name="tg_accent">#FF4EA4F6</color>
 </resources>
 

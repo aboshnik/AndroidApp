@@ -164,11 +164,10 @@
                         android:textSize="14sp" />
                 </LinearLayout>
 
-                <LinearLayout
+                <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/pollOptionsContainer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
                     android:layout_marginTop="6dp" />
             </LinearLayout>
 
@@ -223,13 +222,6 @@
                             android:textColor="@color/poll_editor_text"
                             android:textStyle="bold"
                             android:textSize="14sp" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="Показывать аватарки рядом с вариантами."
-                            android:textColor="@color/poll_editor_hint"
-                            android:textSize="12sp" />
                     </LinearLayout>
 
                     <CheckBox
@@ -239,10 +231,7 @@
                         android:text="" />
                 </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="@color/poll_editor_divider" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/poll_editor_divider" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -278,13 +267,6 @@
                             android:textColor="@color/poll_editor_text"
                             android:textStyle="bold"
                             android:textSize="14sp" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="Пользователь может изменить свой голос."
-                            android:textColor="@color/poll_editor_hint"
-                            android:textSize="12sp" />
                     </LinearLayout>
 
                     <CheckBox
@@ -295,10 +277,7 @@
                         android:text="" />
                 </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="@color/poll_editor_divider" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/poll_editor_divider" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -326,7 +305,6 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
-
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -334,13 +312,6 @@
                             android:textColor="@color/poll_editor_text"
                             android:textStyle="bold"
                             android:textSize="14sp" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="Показывать варианты в случайном порядке."
-                            android:textColor="@color/poll_editor_hint"
-                            android:textSize="12sp" />
                     </LinearLayout>
 
                     <CheckBox
@@ -350,10 +321,7 @@
                         android:text="" />
                 </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="@color/poll_editor_divider" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/poll_editor_divider" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -381,7 +349,6 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
-
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -389,13 +356,6 @@
                             android:textColor="@color/poll_editor_text"
                             android:textSize="14sp"
                             android:textStyle="bold" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="Не показывать результаты до окончания срока."
-                            android:textColor="@color/poll_editor_hint"
-                            android:textSize="12sp" />
                     </LinearLayout>
 
                     <CheckBox
@@ -405,10 +365,7 @@
                         android:text="" />
                 </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="@color/poll_editor_divider" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/poll_editor_divider" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -436,7 +393,6 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
-
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -444,13 +400,6 @@
                             android:textColor="@color/poll_editor_text"
                             android:textStyle="bold"
                             android:textSize="14sp" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="Можно смотреть результаты без голосования."
-                            android:textColor="@color/poll_editor_hint"
-                            android:textSize="12sp" />
                     </LinearLayout>
 
                     <CheckBox
@@ -461,10 +410,7 @@
                         android:text="" />
                 </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="@color/poll_editor_divider" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/poll_editor_divider" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -506,13 +452,19 @@
                             android:layout_width="match_parent"
                             android:layout_height="44dp"
                             android:hint="Выбрать дату и время"
-                            android:focusable="false"
-                            android:clickable="true"
-                            android:cursorVisible="false"
                             android:gravity="center_vertical"
                             android:background="@android:color/transparent"
                             android:textColor="@color/poll_editor_text"
                             android:textColorHint="@color/poll_editor_hint" />
+
+                        <TextView
+                            android:id="@+id/btnClearPollEndsAtUtc"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="Очистить срок"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>

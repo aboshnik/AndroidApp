@@ -2,60 +2,36 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="12dp"
-    android:background="@drawable/bg_poll_option">
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+    <ImageView
+        android:id="@+id/btnDragOption"
+        android:layout_width="28dp"
+        android:layout_height="40dp"
+        android:padding="4dp"
+        android:src="@drawable/ic_drag_handle"
+        android:contentDescription="Перетащить" />
 
-        <TextView
-            android:id="@+id/tvOptionCheck"
-            android:layout_width="18dp"
-            android:layout_height="18dp"
-            android:layout_marginEnd="8dp"
-            android:gravity="center"
-            android:text="✓"
-            android:textColor="@color/button_primary"
-            android:textSize="14sp"
-            android:visibility="gone" />
+    <EditText
+        android:id="@+id/etOptionText"
+        android:layout_width="0dp"
+        android:layout_height="48dp"
+        android:layout_weight="1"
+        android:hint="Вариант"
+        android:paddingHorizontal="12dp"
+        android:background="@drawable/bg_profile_action_row"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_secondary" />
 
-        <TextView
-            android:id="@+id/tvOptionLeft"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textColor="@android:color/black"
-            android:textSize="14sp" />
+    <ImageView
+        android:id="@+id/btnRemoveOption"
+        android:layout_width="34dp"
+        android:layout_height="48dp"
+        android:padding="8dp"
+        android:src="@android:drawable/ic_menu_close_clear_cancel"
+        android:contentDescription="Удалить вариант" />
 
-        <TextView
-            android:id="@+id/tvOptionRight"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:textColor="#666666"
-            android:textSize="14sp" />
-    </LinearLayout>
-
-    <ProgressBar
-        android:id="@+id/pbOption"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent"
-        android:layout_height="6dp"
-        android:layout_marginTop="8dp"
-        android:max="100"
-        android:progress="0"
-        android:progressDrawable="@drawable/poll_progress_drawable" />
-
-    <LinearLayout
-        android:id="@+id/llVoters"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="horizontal"
-        android:visibility="gone" />
 </LinearLayout>
-

@@ -83,6 +83,33 @@ public static class FcmPush
         return result.SuccessCount;
     }
 
+    /// <summary>Push to all tokens for login except the given device (e.g. new device requesting login code).</summary>
+    public static async Task<int> SendToLoginExceptDeviceAsync(
+        string connectionString,
+        string login,
+        string excludeDeviceId,
+        string title,
+        string body,
+        IReadOnlyDictionary<string, string>? data = null)
+    {
+        if (string.IsNullOrWhiteSpace(login)) return 0;
+        EnsureFirebaseInitialized();
+
+        var tokens = await GetTokensForLoginExceptDeviceAsync(connectionString, login.Trim(), excludeDeviceId.Trim());
+        if (tokens.Count == 0) return 0;
+
+        var msg = new MulticastMessage
+        {
+            Tokens = tokens,
+            Notification = new Notification { Title = title, Body = body },
+            Data = data != null ? new Dictionary<string, string>(data) : null,
+            Android = new AndroidConfig { Priority = Priority.High }
+        };
+
+        var result = await FirebaseMessaging.DefaultInstance.SendEachForMulticastAsync(msg);
+        return result.SuccessCount;
+    }
+
     private static async Task<List<string>> GetTokensForLoginAsync(string connectionString, string login)
     {
         var tokens = new List<string>();
@@ -99,6 +126,39 @@ public static class FcmPush
 
         await using var cmd = new SqlCommand(sql, connection);
         cmd.Parameters.AddWithValue("@Login", login);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (reader.IsDBNull(0)) continue;
+            var t = reader.GetString(0);
+            if (!string.IsNullOrWhiteSpace(t)) tokens.Add(t.Trim());
+        }
+        return tokens;
+    }
+
+    private static async Task<List<string>> GetTokensForLoginExceptDeviceAsync(
+        string connectionString,
+        string login,
+        string excludeDeviceId)
+    {
+        var tokens = new List<string>();
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+
+        const string sql = @"
+            IF OBJECT_ID('App_PushTokens', 'U') IS NULL
+                SELECT CAST(NULL AS NVARCHAR(300)) AS Token WHERE 1=0;
+            ELSE
+                SELECT DISTINCT [Token]
+                FROM [App_PushTokens]
+                WHERE [Login] = @Login
+                  AND [Token] IS NOT NULL AND LTRIM(RTRIM([Token])) <> ''
+                  AND ([DeviceId] IS NULL OR [DeviceId] <> @ExcludeDeviceId);";
+
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@Login", login);
+        cmd.Parameters.AddWithValue("@ExcludeDeviceId", excludeDeviceId);
 
         await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())

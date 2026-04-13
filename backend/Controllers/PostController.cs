@@ -10,6 +10,9 @@ namespace EmployeeApi.Controllers;
 [Route("api/[controller]")]
 public class PostController : ControllerBase
 {
+    private const int MaxPostTextLength = 3333;
+    private const int MaxPostImageCount = 15;
+    private const int MaxPostVideoCount = 5;
     private readonly IConfiguration _configuration;
     private readonly IWebHostEnvironment _env;
 
@@ -25,6 +28,10 @@ public class PostController : ControllerBase
         if (request == null || string.IsNullOrWhiteSpace(request.Content))
         {
             return BadRequest(new CreatePostResponse(false, "Текст поста не может быть пустым", null));
+        }
+        if (request.Content.Trim().Length > MaxPostTextLength)
+        {
+            return BadRequest(new CreatePostResponse(false, $"Максимум {MaxPostTextLength} символа(ов) в тексте новости", null));
         }
 
         if (string.IsNullOrWhiteSpace(request.AuthorLogin))
@@ -45,6 +52,7 @@ public class PostController : ControllerBase
 
             await EnsurePostsTableExistsAsync(connection);
             await EnsurePostPollTablesExistsAsync(connection);
+            await EnsurePostMediaTableExistsAsync(connection);
             await EnsureUserPermissionsTableExistsAsync(connection);
 
             var allowed = await CanCreatePostsAsync(connection, request.AuthorLogin);
@@ -88,6 +96,7 @@ public class PostController : ControllerBase
                 Content: request.Content.Trim(),
                 CreatedAt: DateTime.UtcNow,
                 ImageUrl: null,
+                MediaUrls: null,
                 IsImportant: isImportant,
                 ExpiresAt: expiresAt,
                 LikesCount: 0,
@@ -140,19 +149,23 @@ public class PostController : ControllerBase
         [FromForm] string? authorLogin,
         [FromForm] bool? isImportant,
         [FromForm] string? pollJson,
-        [FromForm] IFormFile? media)
+        [FromForm] List<IFormFile>? media)
     {
         Console.WriteLine(
             $"POST /api/post/media: contentLen={(content?.Length ?? 0)} authorLogin='{authorLogin ?? ""}' isImportant='{isImportant?.ToString() ?? "null"}' mediaNull={(media == null ? "yes" : "no")}");
-        if (media != null)
+        if (media != null && media.Count > 0)
         {
             Console.WriteLine(
-                $"POST /api/post/media: media.FileName='{media.FileName}', media.ContentType='{media.ContentType}', media.Length={media.Length}");
+                $"POST /api/post/media: mediaCount={media.Count}");
         }
 
         if (string.IsNullOrWhiteSpace(content))
         {
             return BadRequest(new CreatePostResponse(false, "Текст поста не может быть пустым", null));
+        }
+        if (content.Trim().Length > MaxPostTextLength)
+        {
+            return BadRequest(new CreatePostResponse(false, $"Максимум {MaxPostTextLength} символа(ов) в тексте новости", null));
         }
 
         if (string.IsNullOrWhiteSpace(authorLogin))
@@ -173,6 +186,7 @@ public class PostController : ControllerBase
 
             await EnsurePostsTableExistsAsync(connection);
             await EnsurePostPollTablesExistsAsync(connection);
+            await EnsurePostMediaTableExistsAsync(connection);
             await EnsureUserPermissionsTableExistsAsync(connection);
 
             var allowed = await CanCreatePostsAsync(connection, authorLogin);
@@ -182,7 +196,15 @@ public class PostController : ControllerBase
             }
 
             var authorName = await GetAuthorNameAsync(connection, authorLogin);
-            var imageUrl = media != null ? await SaveMediaAsync(media) : null;
+            var mediaValidationError = ValidateMediaLimits(media);
+            if (mediaValidationError != null)
+            {
+                return BadRequest(new CreatePostResponse(false, mediaValidationError, null));
+            }
+            var mediaUrls = media != null && media.Count > 0
+                ? await SaveMediaListAsync(media)
+                : new List<string>();
+            var imageUrl = mediaUrls.FirstOrDefault();
             var importantFlag = isImportant ?? false;
             DateTime? expiresAt = importantFlag ? null : DateTime.UtcNow.AddDays(7);
 
@@ -218,11 +240,17 @@ public class PostController : ControllerBase
                 Content: content.Trim(),
                 CreatedAt: DateTime.UtcNow,
                 ImageUrl: imageUrl,
+                MediaUrls: mediaUrls.Count == 0 ? null : mediaUrls,
                 IsImportant: importantFlag,
                 ExpiresAt: expiresAt,
                 LikesCount: 0,
                 CommentsCount: 0,
                 Poll: normalizedPoll == null ? null : ToPollItem(normalizedPoll));
+
+            if (mediaUrls.Count > 0)
+            {
+                await SavePostMediaAsync(connection, id, mediaUrls);
+            }
 
             await EnsureNotificationsTablesAsync(connection);
             await CreateBroadcastNotificationAsync(connection,
@@ -279,6 +307,7 @@ public class PostController : ControllerBase
 
             await EnsurePostsTableExistsAsync(connection);
             await EnsurePostPollTablesExistsAsync(connection);
+            await EnsurePostMediaTableExistsAsync(connection);
 
             
             const string cleanupSql = @"
@@ -308,6 +337,7 @@ public class PostController : ControllerBase
                         Content: reader.GetString(3),
                         CreatedAt: reader.GetDateTime(4),
                         ImageUrl: reader.IsDBNull(5) ? null : reader.GetString(5),
+                        MediaUrls: null,
                         IsImportant: !reader.IsDBNull(6) && reader.GetBoolean(6),
                         ExpiresAt: reader.IsDBNull(7) ? null : reader.GetDateTime(7),
                         LikesCount: reader.GetInt32(8),
@@ -320,8 +350,10 @@ public class PostController : ControllerBase
             {
                 var p = posts[i];
                 var baseUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}";
+                var mediaUrls = await GetPostMediaUrlsAsync(connection, p.Id);
                 posts[i] = p with
                 {
+                    MediaUrls = mediaUrls.Count == 0 ? (p.ImageUrl == null ? null : new List<string> { p.ImageUrl }) : mediaUrls,
                     Poll = await GetPollForPostAsync(connection, p.Id, login, p.AuthorLogin, baseUrl)
                 };
             }
@@ -539,6 +571,68 @@ public class PostController : ControllerBase
             );";
         await using var cmd = new SqlCommand(sql, connection);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static async Task EnsurePostMediaTableExistsAsync(SqlConnection connection)
+    {
+        const string sql = @"
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'App_PostMedia')
+            CREATE TABLE [App_PostMedia] (
+                [Id] INT IDENTITY(1,1) PRIMARY KEY,
+                [PostId] INT NOT NULL,
+                [MediaUrl] NVARCHAR(500) NOT NULL,
+                [SortOrder] INT NOT NULL DEFAULT 0,
+                [CreatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+            );";
+        await using var cmd = new SqlCommand(sql, connection);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static async Task SavePostMediaAsync(SqlConnection connection, int postId, List<string> mediaUrls)
+    {
+        const string deleteSql = @"DELETE FROM [App_PostMedia] WHERE [PostId] = @PostId;";
+        await using (var del = new SqlCommand(deleteSql, connection))
+        {
+            del.Parameters.AddWithValue("@PostId", postId);
+            await del.ExecuteNonQueryAsync();
+        }
+
+        const string insertSql = @"
+            INSERT INTO [App_PostMedia] ([PostId], [MediaUrl], [SortOrder], [CreatedAt])
+            VALUES (@PostId, @MediaUrl, @SortOrder, GETUTCDATE());";
+        for (var i = 0; i < mediaUrls.Count; i++)
+        {
+            await using var ins = new SqlCommand(insertSql, connection);
+            ins.Parameters.AddWithValue("@PostId", postId);
+            ins.Parameters.AddWithValue("@MediaUrl", mediaUrls[i]);
+            ins.Parameters.AddWithValue("@SortOrder", i);
+            await ins.ExecuteNonQueryAsync();
+        }
+    }
+
+    private static async Task<List<string>> GetPostMediaUrlsAsync(SqlConnection connection, int postId)
+    {
+        const string sql = @"
+            SELECT [MediaUrl]
+            FROM [App_PostMedia]
+            WHERE [PostId] = @PostId
+            ORDER BY [SortOrder], [Id];";
+        var result = new List<string>();
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@PostId", postId);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (!reader.IsDBNull(0))
+            {
+                var url = reader.GetString(0);
+                if (!string.IsNullOrWhiteSpace(url))
+                {
+                    result.Add(url);
+                }
+            }
+        }
+        return result;
     }
 
     private static PollCreateRequest? ParseAndNormalizePollOrNull(string? pollJson)
@@ -777,8 +871,11 @@ public class PostController : ControllerBase
             CREATE TABLE [App_UserPermissions] (
                 [Login] NVARCHAR(100) NOT NULL PRIMARY KEY,
                 [CanCreatePosts] BIT NOT NULL DEFAULT 0,
+                [CanTechAdmin] BIT NOT NULL DEFAULT 0,
                 [UpdatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
-            );";
+            );
+            IF COL_LENGTH('App_UserPermissions', 'CanTechAdmin') IS NULL
+                ALTER TABLE [App_UserPermissions] ADD [CanTechAdmin] BIT NOT NULL CONSTRAINT [DF_App_UserPermissions_CanTechAdmin] DEFAULT 0;";
         await using var cmd = new SqlCommand(createSql, connection);
         await cmd.ExecuteNonQueryAsync();
     }
@@ -786,7 +883,8 @@ public class PostController : ControllerBase
     private static async Task<bool> CanCreatePostsAsync(SqlConnection connection, string login)
     {
         const string sql = @"
-            SELECT TOP 1 ISNULL([CanCreatePosts], 0)
+            SELECT TOP 1
+                CASE WHEN ISNULL([CanTechAdmin], 0) = 1 THEN 1 ELSE ISNULL([CanCreatePosts], 0) END
             FROM [App_UserPermissions]
             WHERE [Login] = @Login;";
         await using var cmd = new SqlCommand(sql, connection);
@@ -889,6 +987,45 @@ public class PostController : ControllerBase
         var baseUrl = $"{Request.Scheme}://{Request.Host.Value}".TrimEnd('/');
         return $"{baseUrl}/uploads/{fileName}";
     }
+
+    private async Task<List<string>> SaveMediaListAsync(List<IFormFile> mediaFiles)
+    {
+        var result = new List<string>();
+        foreach (var file in mediaFiles)
+        {
+            if (file == null || file.Length <= 0) continue;
+            var url = await SaveMediaAsync(file);
+            if (!string.IsNullOrWhiteSpace(url))
+            {
+                result.Add(url);
+            }
+        }
+        return result;
+    }
+
+    private static string? ValidateMediaLimits(List<IFormFile>? mediaFiles)
+    {
+        if (mediaFiles == null || mediaFiles.Count == 0) return null;
+        var imageCount = 0;
+        var videoCount = 0;
+        foreach (var file in mediaFiles)
+        {
+            if (file == null || file.Length <= 0) continue;
+            var contentType = (file.ContentType ?? "").Trim().ToLowerInvariant();
+            var ext = Path.GetExtension(file.FileName ?? "").Trim().ToLowerInvariant();
+            var isVideo = contentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)
+                          || ext is ".mp4" or ".mov" or ".mkv" or ".webm" or ".avi" or ".m4v" or ".3gp";
+            if (isVideo) videoCount++;
+            else imageCount++;
+        }
+
+        if (imageCount > MaxPostImageCount)
+            return $"Максимум {MaxPostImageCount} фото в одной новости";
+        if (videoCount > MaxPostVideoCount)
+            return $"Максимум {MaxPostVideoCount} видео в одной новости";
+        return null;
+    }
+
 }
 
 public record CreatePostRequest(string Content, string AuthorLogin, bool? IsImportant, PollCreateRequest? Poll);
@@ -938,6 +1075,7 @@ public record PostItem(
     string Content,
     DateTime CreatedAt,
     string? ImageUrl,
+    List<string>? MediaUrls,
     bool IsImportant,
     DateTime? ExpiresAt,
     int LikesCount,

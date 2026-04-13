@@ -58,6 +58,7 @@ data class PostItem(
     @SerializedName("content") val content: String,
     @SerializedName("createdAt") val createdAt: String,
     @SerializedName("imageUrl") val imageUrl: String?,
+    @SerializedName("mediaUrls") val mediaUrls: List<String>? = null,
     @SerializedName("isImportant") val isImportant: Boolean,
     @SerializedName("expiresAt") val expiresAt: String?,
     @SerializedName("likesCount") val likesCount: Int,

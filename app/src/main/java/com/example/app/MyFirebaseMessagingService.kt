@@ -1,11 +1,15 @@
 package com.example.app
 
+import android.app.PendingIntent
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.os.Build
+import androidx.core.app.RemoteInput
 import androidx.core.app.NotificationCompat
 import com.example.app.api.ApiClient
 import com.example.app.api.RegisterPushTokenRequest
+import com.example.app.chats.ChatActivity
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
@@ -22,6 +26,16 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        val typeEarly = message.data["type"]?.trim().orEmpty()
+        if (typeEarly.equals("chat", ignoreCase = true)) {
+            val threadId = message.data["threadId"]?.toIntOrNull() ?: 0
+            if (threadId > 0) {
+                sendBroadcast(
+                    Intent(ChatEvents.ACTION_REFRESH_THREAD_LIST).setPackage(packageName)
+                )
+            }
+        }
+        if (!UserSettings.areNotificationsEnabled(this)) return
         val title = message.notification?.title
             ?: message.data["title"]
             ?: "Обновление"
@@ -29,7 +43,15 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             ?: message.data["body"]
             ?: message.data["message"]
             ?: "Доступна новая информация"
-
+        val type = message.data["type"]?.trim().orEmpty()
+        if (type.equals("chat", ignoreCase = true)) {
+            val threadId = message.data["threadId"]?.toIntOrNull() ?: 0
+            val threadTitle = message.data["threadTitle"]?.trim().orEmpty().ifBlank { title }
+            if (threadId > 0) {
+                showChatNotification(threadId = threadId, threadTitle = threadTitle, body = body)
+                return
+            }
+        }
         showSystemNotification(title, body)
     }
 
@@ -47,6 +69,81 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .build()
 
         nm.notify((System.currentTimeMillis() % Int.MAX_VALUE).toInt(), notification)
+    }
+
+    private fun showChatNotification(threadId: Int, threadTitle: String, body: String) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "updates"
+        val notificationId = threadId
+
+        val openIntent = Intent(this, ChatActivity::class.java).apply {
+            putExtra(ChatActivity.EXTRA_THREAD_ID, threadId)
+            putExtra(ChatActivity.EXTRA_THREAD_TITLE, threadTitle)
+            putExtra(ChatActivity.EXTRA_THREAD_TYPE, "user")
+            putExtra(ChatActivity.EXTRA_THREAD_IS_TECH_ADMIN, false)
+            putExtra(ChatActivity.EXTRA_THREAD_BOT_ID, "")
+            putExtra(ChatActivity.EXTRA_THREAD_IS_OFFICIAL_BOT, false)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val openPi = PendingIntent.getActivity(
+            this,
+            notificationId,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val markReadIntent = Intent(this, ChatNotificationActionReceiver::class.java).apply {
+            action = ChatNotificationActionReceiver.ACTION_MARK_READ
+            putExtra(ChatNotificationActionReceiver.EXTRA_THREAD_ID, threadId)
+            putExtra(ChatNotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        val markReadPi = PendingIntent.getBroadcast(
+            this,
+            notificationId * 10 + 1,
+            markReadIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val replyIntent = Intent(this, ChatNotificationActionReceiver::class.java).apply {
+            action = ChatNotificationActionReceiver.ACTION_REPLY
+            putExtra(ChatNotificationActionReceiver.EXTRA_THREAD_ID, threadId)
+            putExtra(ChatNotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        val replyPi = PendingIntent.getBroadcast(
+            this,
+            notificationId * 10 + 2,
+            replyIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        )
+        val remoteInput = RemoteInput.Builder(ChatNotificationActionReceiver.KEY_REPLY_TEXT)
+            .setLabel("Ответить")
+            .build()
+
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(threadTitle)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(openPi)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .addAction(
+                NotificationCompat.Action.Builder(
+                    android.R.drawable.ic_menu_send,
+                    "Ответить",
+                    replyPi
+                ).addRemoteInput(remoteInput).build()
+            )
+            .addAction(
+                NotificationCompat.Action.Builder(
+                    android.R.drawable.ic_menu_view,
+                    "Пометить прочитанным",
+                    markReadPi
+                ).build()
+            )
+            .build()
+
+        nm.notify(notificationId, notification)
     }
 
     private fun registerTokenAsync(token: String) {

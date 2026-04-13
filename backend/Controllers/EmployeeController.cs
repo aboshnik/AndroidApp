@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Hosting;
@@ -14,11 +15,13 @@ public class EmployeeController : ControllerBase
 {
     private readonly IConfiguration _configuration;
     private readonly IWebHostEnvironment _env;
+    private readonly ChatMessageCipher _chatCipher;
 
-    public EmployeeController(IConfiguration configuration, IWebHostEnvironment env)
+    public EmployeeController(IConfiguration configuration, IWebHostEnvironment env, ChatMessageCipher chatCipher)
     {
         _configuration = configuration;
         _env = env;
+        _chatCipher = chatCipher;
     }
 
     [HttpPost("verify")]
@@ -48,27 +51,30 @@ public class EmployeeController : ControllerBase
                     CAST(ISNULL([ЗарегВПриложении], 0) AS bit) AS RegisteredInApp
                 FROM [Lexema_Кадры_ЛичнаяКарточка]
                 WHERE
-                    -- Совпадение по табельному номеру
-                    [ТабельныйНомер] = @EmployeeId
-                    OR
                     (
-                        -- Совпадение по ФИО + телефону (последние 10 цифр)
-                        [Фамилия] = @LastName
-                        AND [Имя] = @FirstName
-                        AND [Отчество] = @Patronymic
-                        AND RIGHT(
-                            REPLACE(
+                        -- Совпадение по табельному номеру
+                        [ТабельныйНомер] = @EmployeeId
+                        OR
+                        (
+                            -- Совпадение по ФИО + телефону (последние 10 цифр)
+                            [Фамилия] = @LastName
+                            AND [Имя] = @FirstName
+                            AND [Отчество] = @Patronymic
+                            AND RIGHT(
                                 REPLACE(
                                     REPLACE(
                                         REPLACE(
-                                            REPLACE([Сотовый], ' ', ''),
-                                        '-', ''),
-                                    '+', ''),
-                                '(', ''),
-                            ')', ''),
-                            10
-                        ) = @PhoneLast10
-                    )";
+                                            REPLACE(
+                                                REPLACE([Сотовый], ' ', ''),
+                                            '-', ''),
+                                        '+', ''),
+                                    '(', ''),
+                                ')', ''),
+                                10
+                            ) = @PhoneLast10
+                        )
+                    )
+                    AND TRY_CONVERT(datetime2, [ДатаУвольнения]) IS NULL;";
 
             await using var cmd = new SqlCommand(sql, connection);
             cmd.Parameters.AddWithValue("@EmployeeId", request.EmployeeId ?? "");
@@ -141,25 +147,28 @@ public class EmployeeController : ControllerBase
                     [Логин] = @Login,
                     [Пароль] = @PasswordHash
                 WHERE
-                    [ТабельныйНомер] = @EmployeeId
-                    OR
                     (
-                        [Фамилия] = @LastName
-                        AND [Имя] = @FirstName
-                        AND [Отчество] = @Patronymic
-                        AND RIGHT(
-                            REPLACE(
+                        [ТабельныйНомер] = @EmployeeId
+                        OR
+                        (
+                            [Фамилия] = @LastName
+                            AND [Имя] = @FirstName
+                            AND [Отчество] = @Patronymic
+                            AND RIGHT(
                                 REPLACE(
                                     REPLACE(
                                         REPLACE(
-                                            REPLACE([Сотовый], ' ', ''),
-                                        '-', ''),
-                                    '+', ''),
-                                '(', ''),
-                            ')', ''),
-                            10
-                        ) = @PhoneLast10
-                    );
+                                            REPLACE(
+                                                REPLACE([Сотовый], ' ', ''),
+                                            '-', ''),
+                                        '+', ''),
+                                    '(', ''),
+                                ')', ''),
+                                10
+                            ) = @PhoneLast10
+                        )
+                    )
+                    AND TRY_CONVERT(datetime2, [ДатаУвольнения]) IS NULL;
                 SELECT @@ROWCOUNT;";
 
             await using var cmd = new SqlCommand(sql, connection);
@@ -218,6 +227,9 @@ public class EmployeeController : ControllerBase
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
             await EnsureAppUserProfileTableAsync(connection);
+            var isDismissed = await IsDismissedEmployeeAsync(connection, employeeId, login);
+            if (isDismissed)
+                return Ok(new ProfileResponse(false, "Профиль заблокирован: сотрудник уволен", null));
 
             const string sql = @"
                 SELECT TOP 1
@@ -233,9 +245,12 @@ public class EmployeeController : ControllerBase
                 FROM [Lexema_Кадры_ЛичнаяКарточка] C
                 LEFT JOIN [App_UserProfile] P ON P.[Login] = C.[Логин]
                 WHERE
-                    (@EmployeeId <> '' AND TRY_CONVERT(nvarchar(50), C.[ТабельныйНомер]) = @EmployeeId)
-                    OR
-                    (@Login <> '' AND C.[Логин] = @Login);";
+                    (
+                        (@EmployeeId <> '' AND TRY_CONVERT(nvarchar(50), C.[ТабельныйНомер]) = @EmployeeId)
+                        OR
+                        (@Login <> '' AND C.[Логин] = @Login)
+                    )
+                    AND TRY_CONVERT(datetime2, C.[ДатаУвольнения]) IS NULL;";
 
             await using var cmd = new SqlCommand(sql, connection);
             cmd.Parameters.AddWithValue("@EmployeeId", employeeId ?? string.Empty);
@@ -470,6 +485,7 @@ public class EmployeeController : ControllerBase
                     COALESCE(TRY_CONVERT(nvarchar(200), [Сотовый]), '')       AS Phone,
                     COALESCE(TRY_CONVERT(nvarchar(50),  [ТабельныйНомер]), '') AS EmployeeId,
                     ISNULL(P.[CanCreatePosts], 0)                              AS CanCreatePosts,
+                    ISNULL(P.[CanTechAdmin], 0)                                AS IsTechAdmin,
                     ISNULL(P.[CanUseDevConsole], 0)                            AS CanUseDevConsole
                 FROM [Lexema_Кадры_ЛичнаяКарточка]
                 LEFT JOIN [App_UserPermissions] P ON P.[Login] = @Login
@@ -483,27 +499,39 @@ public class EmployeeController : ControllerBase
             cmd.Parameters.AddWithValue("@Login", request.Login);
             cmd.Parameters.AddWithValue("@PasswordHash", passwordHash);
 
-            string lastName;
-            string firstName;
-            string phone;
-            string employeeId;
-            bool canCreatePosts;
-            bool canUseDevConsole;
+            string lastName = "";
+            string firstName = "";
+            string phone = "";
+            string employeeId = "";
+            bool canCreatePosts = false;
+            bool isTechAdmin = false;
+            bool canUseDevConsole = false;
+            var userFound = false;
 
             await using (var reader = await cmd.ExecuteReaderAsync())
             {
-                if (!await reader.ReadAsync())
+                if (!await reader.ReadAsync()) { }
+                else
                 {
-                    return Ok(new LoginResponse(false, "Неверный логин или пароль", null));
-                }
+                    userFound = true;
 
-                lastName = reader.GetString(0);
-                firstName = reader.GetString(1);
-                phone = reader.GetString(2);
-                employeeId = reader.GetString(3);
-                canCreatePosts = Convert.ToInt32(reader.GetValue(4)) == 1;
-                canUseDevConsole = Convert.ToInt32(reader.GetValue(5)) == 1;
+                    lastName = reader.GetString(0);
+                    firstName = reader.GetString(1);
+                    phone = reader.GetString(2);
+                    employeeId = reader.GetString(3);
+                    isTechAdmin = Convert.ToInt32(reader.GetValue(5)) == 1;
+                    canCreatePosts = Convert.ToInt32(reader.GetValue(4)) == 1 || isTechAdmin;
+                    canUseDevConsole = Convert.ToInt32(reader.GetValue(6)) == 1;
+                }
             }  
+
+            if (!userFound)
+            {
+                var dismissed = await IsDismissedEmployeeAsync(connection, null, request.Login);
+                if (dismissed)
+                    return Ok(new LoginResponse(false, "Профиль заблокирован: сотрудник уволен", null));
+                return Ok(new LoginResponse(false, "Неверный логин или пароль", null));
+            }
 
             var result = new LoginResult(
                 LastName: lastName,
@@ -511,6 +539,7 @@ public class EmployeeController : ControllerBase
                 Phone: phone,
                 EmployeeId: employeeId,
                 CanCreatePosts: canCreatePosts,
+                IsTechAdmin: isTechAdmin,
                 CanUseDevConsole: canUseDevConsole
             );
 
@@ -550,43 +579,59 @@ public class EmployeeController : ControllerBase
                 }
                 else
                 {
-                var attemptId = await CreateSecurityAttemptAsync(connection, login, deviceId, deviceName, ipNorm, userAgent);
-                await InsertNotificationAsync(
-                    connection,
-                    recipientLogin: login,
-                    type: "security",
-                    title: "Безопасность: требуется подтверждение входа",
-                    body: $"Попытка входа с устройства: {deviceName}. IP: {ipNorm}",
-                    action: "security_login",
-                    actionData: attemptId.ToString());
+                    var (attemptId, plainCode) = await CreatePendingDeviceLoginAttemptAsync(
+                        connection, login, deviceId, deviceName, ipNorm, userAgent);
 
-               
-                if (FcmPush.IsConfigured())
-                {
-                    _ = Task.Run(async () =>
+                    await ChatController.EnsureChatTablesAsync(connection);
+                    var securityText = $"""
+Код для входа с другого устройства: {plainCode}
+
+Действителен 10 минут. Запрос с: {deviceName}
+
+""".Trim();
+                    await ChatController.InsertSecurityMessageAsync(connection, login, securityText, metaJson: null, _chatCipher);
+
+                    await InsertNotificationAsync(
+                        connection,
+                        recipientLogin: login,
+                        type: "security",
+                        title: "StekloSecurity: код для входа",
+                        body: $"Откройте чат со StekloSecurity — там код для входа с устройства «{deviceName}».",
+                        action: "security_device_code",
+                        actionData: attemptId.ToString());
+
+                    var otherDeviceCount = await CountPushTokensForLoginExceptDeviceAsync(connection, login, deviceId);
+                    if (FcmPush.IsConfigured() && otherDeviceCount > 0)
                     {
-                        try
+                        _ = Task.Run(async () =>
                         {
-                            await FcmPush.SendToLoginAsync(
-                                connectionString,
-                                login,
-                                "Безопасность: требуется подтверждение входа",
-                                $"Попытка входа с устройства: {deviceName}. IP: {ipNorm}",
-                                new Dictionary<string, string>
-                                {
-                                    ["type"] = "security",
-                                    ["action"] = "security_login",
-                                    ["actionData"] = attemptId.ToString()
-                                });
-                        }
-                        catch
-                        {
-                            
-                        }
-                    });
-                }
+                            try
+                            {
+                                await FcmPush.SendToLoginExceptDeviceAsync(
+                                    connectionString,
+                                    login,
+                                    deviceId,
+                                    "StekloSecurity: код для входа",
+                                    "Откройте чат со StekloSecurity в приложении — там 6-значный код.",
+                                    new Dictionary<string, string>
+                                    {
+                                        ["type"] = "security",
+                                        ["action"] = "security_device_code",
+                                        ["actionData"] = attemptId.ToString()
+                                    });
+                            }
+                            catch
+                            {
+                            }
+                        });
+                    }
 
-                return Ok(new LoginResponse(false, "Вход подтверждается владельцем. Попробуйте войти снова после одобрения.", null));
+                    return Ok(new LoginResponse(
+                        false,
+                        "Введите код из чата со StekloSecurity на другом устройстве.",
+                        null,
+                        RequiresDeviceCode: true,
+                        PendingAttemptId: attemptId));
                 }
             }
 
@@ -595,6 +640,232 @@ public class EmployeeController : ControllerBase
         catch (Exception ex)
         {
             Console.WriteLine("LOGIN ERROR:");
+            Console.WriteLine(ex.ToString());
+            return StatusCode(500, new LoginResponse(false, $"Ошибка БД: {ex.Message}", null));
+        }
+    }
+
+    [HttpPost("confirm-device-login")]
+    public async Task<ActionResult<LoginResponse>> ConfirmDeviceLogin([FromBody] ConfirmDeviceLoginRequest request)
+    {
+        if (request == null ||
+            string.IsNullOrWhiteSpace(request.Login) ||
+            string.IsNullOrWhiteSpace(request.Password) ||
+            string.IsNullOrWhiteSpace(request.DeviceId) ||
+            request.AttemptId <= 0)
+            return BadRequest(new LoginResponse(false, "Неверные данные запроса", null));
+
+        var codeRaw = (request.Code ?? "").Trim();
+        if (codeRaw.Length != 6 || !codeRaw.All(char.IsDigit))
+            return Ok(new LoginResponse(false, "Введите 6-значный код из уведомления", null));
+
+        var connectionString = _configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrEmpty(connectionString))
+            return StatusCode(500, new LoginResponse(false, "Не настроено подключение к базе данных", null));
+
+        try
+        {
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync();
+
+            await EnsureUserPermissionsTableExistsAsync(connection);
+            await EnsureSecurityTablesAsync(connection);
+
+            var passwordHash = HashPassword(request.Password);
+
+            const string userSql = @"
+                SELECT TOP 1
+                    COALESCE(TRY_CONVERT(nvarchar(200), [Фамилия]), '')        AS LastName,
+                    COALESCE(TRY_CONVERT(nvarchar(200), [Имя]), '')           AS FirstName,
+                    COALESCE(TRY_CONVERT(nvarchar(200), [Сотовый]), '')       AS Phone,
+                    COALESCE(TRY_CONVERT(nvarchar(50),  [ТабельныйНомер]), '') AS EmployeeId,
+                    ISNULL(P.[CanCreatePosts], 0)                              AS CanCreatePosts,
+                    ISNULL(P.[CanTechAdmin], 0)                                AS IsTechAdmin,
+                    ISNULL(P.[CanUseDevConsole], 0)                            AS CanUseDevConsole
+                FROM [Lexema_Кадры_ЛичнаяКарточка]
+                LEFT JOIN [App_UserPermissions] P ON P.[Login] = @Login
+                WHERE
+                    [Логин] = @Login
+                    AND ISNULL([Пароль], '') = @PasswordHash
+                    AND ISNULL([ЗарегВПриложении], 0) = 1
+                    AND TRY_CONVERT(datetime2, [ДатаУвольнения]) IS NULL;";
+
+            string lastName = "";
+            string firstName = "";
+            string phone = "";
+            string employeeId = "";
+            bool canCreatePosts = false;
+            bool isTechAdmin = false;
+            bool canUseDevConsole = false;
+            var userFound = false;
+
+            await using (var cmd = new SqlCommand(userSql, connection))
+            {
+                cmd.Parameters.AddWithValue("@Login", request.Login.Trim());
+                cmd.Parameters.AddWithValue("@PasswordHash", passwordHash);
+                await using var reader = await cmd.ExecuteReaderAsync();
+                if (!await reader.ReadAsync()) { }
+                else
+                {
+                    userFound = true;
+                    lastName = reader.GetString(0);
+                    firstName = reader.GetString(1);
+                    phone = reader.GetString(2);
+                    employeeId = reader.GetString(3);
+                    isTechAdmin = Convert.ToInt32(reader.GetValue(5)) == 1;
+                    canCreatePosts = Convert.ToInt32(reader.GetValue(4)) == 1 || isTechAdmin;
+                    canUseDevConsole = Convert.ToInt32(reader.GetValue(6)) == 1;
+                }
+            }
+
+            if (!userFound)
+            {
+                var dismissed = await IsDismissedEmployeeAsync(connection, null, request.Login.Trim());
+                if (dismissed)
+                    return Ok(new LoginResponse(false, "Профиль заблокирован: сотрудник уволен", null));
+                return Ok(new LoginResponse(false, "Неверный логин или пароль", null));
+            }
+
+            const string attSql = @"
+                SELECT TOP 1
+                    [Status],
+                    [CodeHash],
+                    [CodeExpiresAt],
+                    [CodeFailedAttempts],
+                    [RecipientLogin],
+                    [DeviceId],
+                    [DeviceName],
+                    [Ip],
+                    [UserAgent]
+                FROM [App_SecurityLoginAttempts]
+                WHERE [Id] = @Id;";
+            string? status = null;
+            string? codeHashDb = null;
+            DateTime? codeExpiresAt = null;
+            int failed = 0;
+            var recipientLogin = "";
+            var attDeviceId = "";
+            string? attDeviceName = null;
+            string? attIp = null;
+            string? attUa = null;
+
+            await using (var acmd = new SqlCommand(attSql, connection))
+            {
+                acmd.Parameters.AddWithValue("@Id", request.AttemptId);
+                await using var ar = await acmd.ExecuteReaderAsync();
+                if (!await ar.ReadAsync())
+                    return Ok(new LoginResponse(false, "Запрос не найден", null));
+
+                status = ar.IsDBNull(0) ? null : ar.GetString(0);
+                codeHashDb = ar.IsDBNull(1) ? null : ar.GetString(1);
+                codeExpiresAt = ar.IsDBNull(2) ? null : ar.GetDateTime(2);
+                failed = ar.IsDBNull(3) ? 0 : Convert.ToInt32(ar.GetValue(3));
+                recipientLogin = ar.GetString(4);
+                attDeviceId = ar.GetString(5);
+                attDeviceName = ar.IsDBNull(6) ? null : ar.GetString(6);
+                attIp = ar.IsDBNull(7) ? null : ar.GetString(7);
+                attUa = ar.IsDBNull(8) ? null : ar.GetString(8);
+            }
+
+            var loginNorm = request.Login.Trim();
+            if (!string.Equals(recipientLogin, loginNorm, StringComparison.OrdinalIgnoreCase))
+                return Ok(new LoginResponse(false, "Запрос не найден", null));
+
+            if (!string.Equals(attDeviceId, request.DeviceId.Trim(), StringComparison.Ordinal))
+                return Ok(new LoginResponse(false, "Запрос не найден", null));
+
+            if (!string.Equals(status, "pending", StringComparison.OrdinalIgnoreCase))
+                return Ok(new LoginResponse(false, "Код уже использован или отменён. Войдите снова.", null));
+
+            if (codeExpiresAt.HasValue && codeExpiresAt.Value < DateTime.UtcNow)
+                return Ok(new LoginResponse(false, "Срок действия кода истёк. Войдите снова.", null));
+
+            if (failed >= 5)
+                return Ok(new LoginResponse(false, "Слишком много неверных попыток. Войдите снова.", null));
+
+            if (string.IsNullOrWhiteSpace(codeHashDb))
+                return Ok(new LoginResponse(false, "Код недоступен для этого запроса", null));
+
+            var codeTry = HashPassword(codeRaw);
+            if (!string.Equals(codeTry, codeHashDb, StringComparison.Ordinal))
+            {
+                const string bumpSql = @"
+                    UPDATE [App_SecurityLoginAttempts]
+                    SET [CodeFailedAttempts] = [CodeFailedAttempts] + 1,
+                        [Status] = CASE WHEN [CodeFailedAttempts] + 1 >= 5 THEN 'denied' ELSE [Status] END,
+                        [DeniedAt] = CASE WHEN [CodeFailedAttempts] + 1 >= 5 THEN GETUTCDATE() ELSE [DeniedAt] END
+                    WHERE [Id] = @Id;";
+                await using (var bump = new SqlCommand(bumpSql, connection))
+                {
+                    bump.Parameters.AddWithValue("@Id", request.AttemptId);
+                    await bump.ExecuteNonQueryAsync();
+                }
+                return Ok(new LoginResponse(false, "Неверный код", null));
+            }
+
+            const string approveSql = @"
+                UPDATE [App_SecurityLoginAttempts]
+                SET [Status] = 'approved',
+                    [ApprovedAt] = GETUTCDATE()
+                WHERE [Id] = @Id;";
+            await using (var appr = new SqlCommand(approveSql, connection))
+            {
+                appr.Parameters.AddWithValue("@Id", request.AttemptId);
+                await appr.ExecuteNonQueryAsync();
+            }
+
+            var ipNorm = NormalizeIp(HttpContext.Connection.RemoteIpAddress?.ToString() ?? "");
+            var ua = Request.Headers.UserAgent.ToString();
+            var deviceName = (request.DeviceName ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(deviceName)) deviceName = attDeviceName ?? "";
+
+            const string upsertDeviceSql = @"
+                IF EXISTS (SELECT 1 FROM [App_LoginDevices] WHERE [Login] = @Login AND [DeviceId] = @DeviceId)
+                    UPDATE [App_LoginDevices]
+                    SET [DeviceName] = @DeviceName,
+                        [LastSeenAt] = GETUTCDATE(),
+                        [LastIp] = @Ip,
+                        [LastUserAgent] = @UA
+                    WHERE [Login] = @Login AND [DeviceId] = @DeviceId
+                ELSE
+                    INSERT INTO [App_LoginDevices] ([Login], [DeviceId], [DeviceName], [FirstSeenAt], [LastSeenAt], [LastIp], [LastUserAgent])
+                    VALUES (@Login, @DeviceId, @DeviceName, GETUTCDATE(), GETUTCDATE(), @Ip, @UA);";
+            await using (var upsert = new SqlCommand(upsertDeviceSql, connection))
+            {
+                upsert.Parameters.AddWithValue("@Login", loginNorm);
+                upsert.Parameters.AddWithValue("@DeviceId", request.DeviceId.Trim());
+                upsert.Parameters.AddWithValue("@DeviceName", (object?)deviceName ?? DBNull.Value);
+                upsert.Parameters.AddWithValue("@Ip", (object?)(string.IsNullOrWhiteSpace(ipNorm) ? attIp : ipNorm) ?? DBNull.Value);
+                upsert.Parameters.AddWithValue("@UA", (object?)(string.IsNullOrWhiteSpace(ua) ? attUa : ua) ?? DBNull.Value);
+                await upsert.ExecuteNonQueryAsync();
+            }
+
+            if (!string.IsNullOrWhiteSpace(attIp))
+            {
+                const string deleteBlockSql = @"
+                    DELETE FROM [App_BlockedIps]
+                    WHERE [Login] = @Login AND [Ip] = @Ip;";
+                await using var del = new SqlCommand(deleteBlockSql, connection);
+                del.Parameters.AddWithValue("@Login", loginNorm);
+                del.Parameters.AddWithValue("@Ip", attIp);
+                await del.ExecuteNonQueryAsync();
+            }
+
+            var loginResult = new LoginResult(
+                LastName: lastName,
+                FirstName: firstName,
+                Phone: phone,
+                EmployeeId: employeeId,
+                CanCreatePosts: canCreatePosts,
+                IsTechAdmin: isTechAdmin,
+                CanUseDevConsole: canUseDevConsole
+            );
+
+            return Ok(new LoginResponse(true, "OK", loginResult));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("CONFIRM DEVICE LOGIN ERROR:");
             Console.WriteLine(ex.ToString());
             return StatusCode(500, new LoginResponse(false, $"Ошибка БД: {ex.Message}", null));
         }
@@ -735,9 +1006,12 @@ public class EmployeeController : ControllerBase
             CREATE TABLE [App_UserPermissions] (
                 [Login] NVARCHAR(100) NOT NULL PRIMARY KEY,
                 [CanCreatePosts] BIT NOT NULL DEFAULT 0,
+                [CanTechAdmin] BIT NOT NULL DEFAULT 0,
                 [CanUseDevConsole] BIT NOT NULL DEFAULT 0,
                 [UpdatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
             );
+            IF COL_LENGTH('App_UserPermissions', 'CanTechAdmin') IS NULL
+                ALTER TABLE [App_UserPermissions] ADD [CanTechAdmin] BIT NOT NULL CONSTRAINT [DF_App_UserPermissions_CanTechAdmin] DEFAULT 0;
             IF COL_LENGTH('App_UserPermissions', 'CanUseDevConsole') IS NULL
                 ALTER TABLE [App_UserPermissions] ADD [CanUseDevConsole] BIT NOT NULL CONSTRAINT [DF_App_UserPermissions_CanUseDevConsole] DEFAULT 0;";
         await using var cmd = new SqlCommand(createSql, connection);
@@ -780,7 +1054,15 @@ public class EmployeeController : ControllerBase
                 [CreatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
                 [ApprovedAt] DATETIME2 NULL,
                 [DeniedAt] DATETIME2 NULL
-            );";
+            );
+
+            IF COL_LENGTH('App_SecurityLoginAttempts', 'CodeHash') IS NULL
+                ALTER TABLE [App_SecurityLoginAttempts] ADD [CodeHash] NVARCHAR(100) NULL;
+            IF COL_LENGTH('App_SecurityLoginAttempts', 'CodeExpiresAt') IS NULL
+                ALTER TABLE [App_SecurityLoginAttempts] ADD [CodeExpiresAt] DATETIME2 NULL;
+            IF COL_LENGTH('App_SecurityLoginAttempts', 'CodeFailedAttempts') IS NULL
+                ALTER TABLE [App_SecurityLoginAttempts] ADD [CodeFailedAttempts] INT NOT NULL CONSTRAINT [DF_App_SecurityLoginAttempts_CodeFailed] DEFAULT 0;
+            ";
 
         await using var cmd = new SqlCommand(sql, connection);
         await cmd.ExecuteNonQueryAsync();
@@ -880,12 +1162,48 @@ public class EmployeeController : ControllerBase
         await cmd.ExecuteNonQueryAsync();
     }
 
-    private static async Task<int> CreateSecurityAttemptAsync(SqlConnection connection, string login, string deviceId, string? deviceName, string ip, string userAgent)
+    private static string GenerateSixDigitCode() =>
+        RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+
+    private static async Task<int> CountPushTokensForLoginExceptDeviceAsync(
+        SqlConnection connection,
+        string login,
+        string excludeDeviceId)
     {
-         
         const string sql = @"
-            INSERT INTO [App_SecurityLoginAttempts] ([RecipientLogin], [DeviceId], [DeviceName], [Ip], [UserAgent], [Status])
-            VALUES (@Login, @DeviceId, @DeviceName, @Ip, @UA, 'pending');
+            IF OBJECT_ID('App_PushTokens', 'U') IS NULL
+                SELECT 0;
+            ELSE
+                SELECT COUNT(1)
+                FROM [App_PushTokens]
+                WHERE [Login] = @Login
+                  AND [Token] IS NOT NULL AND LTRIM(RTRIM([Token])) <> ''
+                  AND ([DeviceId] IS NULL OR [DeviceId] <> @ExcludeDeviceId);";
+
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@Login", login);
+        cmd.Parameters.AddWithValue("@ExcludeDeviceId", excludeDeviceId);
+        var o = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt32(o ?? 0);
+    }
+
+    private static async Task<(int AttemptId, string PlainCode)> CreatePendingDeviceLoginAttemptAsync(
+        SqlConnection connection,
+        string login,
+        string deviceId,
+        string? deviceName,
+        string ip,
+        string userAgent)
+    {
+        var plain = GenerateSixDigitCode();
+        var hash = HashPassword(plain);
+        var expires = DateTime.UtcNow.AddMinutes(10);
+
+        const string sql = @"
+            INSERT INTO [App_SecurityLoginAttempts] (
+                [RecipientLogin], [DeviceId], [DeviceName], [Ip], [UserAgent], [Status],
+                [CodeHash], [CodeExpiresAt], [CodeFailedAttempts])
+            VALUES (@Login, @DeviceId, @DeviceName, @Ip, @UA, 'pending', @CodeHash, @Expires, 0);
             SELECT SCOPE_IDENTITY();";
 
         await using var cmd = new SqlCommand(sql, connection);
@@ -894,9 +1212,12 @@ public class EmployeeController : ControllerBase
         cmd.Parameters.AddWithValue("@DeviceName", (object?)deviceName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Ip", (object?)ip ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@UA", (object?)userAgent ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@CodeHash", hash);
+        cmd.Parameters.AddWithValue("@Expires", expires);
 
         var o = await cmd.ExecuteScalarAsync();
-        return Convert.ToInt32(o);
+        var id = Convert.ToInt32(o);
+        return (id, plain);
     }
 
     private static async Task<bool> UpsertDeviceAndDetectNewAsync(
@@ -1068,6 +1389,23 @@ public class EmployeeController : ControllerBase
         return o != null && o != DBNull.Value;
     }
 
+    private static async Task<bool> IsDismissedEmployeeAsync(SqlConnection connection, string? employeeId, string? login)
+    {
+        const string sql = @"
+            SELECT TOP 1
+                CASE WHEN TRY_CONVERT(datetime2, [ДатаУвольнения]) IS NULL THEN 0 ELSE 1 END
+            FROM [Lexema_Кадры_ЛичнаяКарточка]
+            WHERE
+                (@EmployeeId <> '' AND TRY_CONVERT(nvarchar(50), [ТабельныйНомер]) = @EmployeeId)
+                OR
+                (@Login <> '' AND [Логин] = @Login);";
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@EmployeeId", employeeId?.Trim() ?? string.Empty);
+        cmd.Parameters.AddWithValue("@Login", login?.Trim() ?? string.Empty);
+        var o = await cmd.ExecuteScalarAsync();
+        return o != null && o != DBNull.Value && Convert.ToInt32(o) == 1;
+    }
+
     private static async Task<int> GetFioCountAsync(
         SqlConnection connection,
         string lastName,
@@ -1182,15 +1520,23 @@ public record AvatarUploadResponse(bool Success, string Message, string? AvatarU
 
 public record LoginRequest(string Login, string Password, string? DeviceId, string? DeviceName);
 
+public record ConfirmDeviceLoginRequest(string Login, string Password, string DeviceId, string? DeviceName, int AttemptId, string? Code);
+
 public record LoginResult(
     string LastName,
     string FirstName,
     string Phone,
     string EmployeeId,
     bool CanCreatePosts,
+    bool IsTechAdmin,
     bool CanUseDevConsole);
 
-public record LoginResponse(bool Success, string Message, LoginResult? Result);
+public record LoginResponse(
+    bool Success,
+    string Message,
+    LoginResult? Result,
+    bool RequiresDeviceCode = false,
+    int? PendingAttemptId = null);
 public record WorkSchedule(string WorkPattern, string ShiftStart, string ShiftEnd, string VacationStart, string VacationEnd);
 public record WorkScheduleResponse(bool Success, string Message, WorkSchedule? Schedule);
 

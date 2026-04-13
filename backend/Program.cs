@@ -8,6 +8,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseWebRoot("wwwroot");
 
 builder.Services.AddControllers();
+builder.Services.AddSingleton<ChatMessageCipher>();
+builder.Services.AddHostedService<ServerDiagnosticsLifetimeHostedService>();
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -19,6 +21,8 @@ builder.Services.AddCors(options =>
 });
 if (args.Length >= 1 && (args[0].Equals("grant-posts", StringComparison.OrdinalIgnoreCase)
                          || args[0].Equals("revoke-posts", StringComparison.OrdinalIgnoreCase)
+                         || args[0].Equals("grant-tech-admin", StringComparison.OrdinalIgnoreCase)
+                         || args[0].Equals("revoke-tech-admin", StringComparison.OrdinalIgnoreCase)
                          || args[0].Equals("grant-dev-console", StringComparison.OrdinalIgnoreCase)
                          || args[0].Equals("revoke-dev-console", StringComparison.OrdinalIgnoreCase)
                          || args[0].Equals("notify-test", StringComparison.OrdinalIgnoreCase)
@@ -93,6 +97,64 @@ if (args.Length >= 1 && (args[0].Equals("grant-posts", StringComparison.OrdinalI
         Console.WriteLine(affected > 0
             ? $"OK: {(canCreate ? "granted" : "revoked")} CanCreatePosts for '{login}'."
             : $"OK: {(canCreate ? "granted" : "revoked")} CanCreatePosts for '{login}' (no rows affected).");
+        return;
+    }
+
+    if (args[0].Equals("grant-tech-admin", StringComparison.OrdinalIgnoreCase)
+        || args[0].Equals("revoke-tech-admin", StringComparison.OrdinalIgnoreCase))
+    {
+        if (args.Length < 2)
+        {
+            Console.WriteLine("Login is required. Example: dotnet run -- grant-tech-admin test");
+            return;
+        }
+        var login = args[1].Trim();
+        if (string.IsNullOrWhiteSpace(login))
+        {
+            Console.WriteLine("Login is required. Example: dotnet run -- grant-tech-admin test");
+            return;
+        }
+
+        var allow = args[0].Equals("grant-tech-admin", StringComparison.OrdinalIgnoreCase);
+        var affected = await UpsertCanTechAdminAsync(connectionString, login, allow);
+
+        var title = allow ? "Назначен технический администратор" : "Снят технический администратор";
+        var body = allow
+            ? "Вам выданы права технического администратора (полный доступ)."
+            : "У вас сняты права технического администратора.";
+        var notifId = await InsertNotificationAsync(
+            connectionString,
+            recipientLogin: login,
+            type: "permissions",
+            title: title,
+            body: body,
+            action: "open_profile",
+            actionData: null);
+
+        if (FcmPush.IsConfigured())
+        {
+            try
+            {
+                await FcmPush.SendToLoginAsync(
+                    connectionString,
+                    login,
+                    title,
+                    body,
+                    new Dictionary<string, string>
+                    {
+                        ["type"] = "permissions",
+                        ["action"] = "open_profile",
+                        ["notificationId"] = notifId.ToString()
+                    });
+            }
+            catch
+            {
+            }
+        }
+
+        Console.WriteLine(affected > 0
+            ? $"OK: {(allow ? "granted" : "revoked")} CanTechAdmin for '{login}'."
+            : $"OK: {(allow ? "granted" : "revoked")} CanTechAdmin for '{login}' (no rows affected).");
         return;
     }
 
@@ -570,6 +632,7 @@ if (args.Length >= 1 && (args[0].Equals("grant-posts", StringComparison.OrdinalI
 
 var app = builder.Build();
 
+app.UseMiddleware<ServerDiagnosticsMiddleware>();
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
@@ -591,9 +654,12 @@ static async Task<int> UpsertCanCreatePostsAsync(string connectionString, string
         CREATE TABLE [App_UserPermissions] (
             [Login] NVARCHAR(100) NOT NULL PRIMARY KEY,
             [CanCreatePosts] BIT NOT NULL DEFAULT 0,
+            [CanTechAdmin] BIT NOT NULL DEFAULT 0,
             [CanUseDevConsole] BIT NOT NULL DEFAULT 0,
             [UpdatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
         );
+        IF COL_LENGTH('App_UserPermissions', 'CanTechAdmin') IS NULL
+            ALTER TABLE [App_UserPermissions] ADD [CanTechAdmin] BIT NOT NULL CONSTRAINT [DF_App_UserPermissions_CanTechAdmin] DEFAULT 0;
         IF COL_LENGTH('App_UserPermissions', 'CanUseDevConsole') IS NULL
             ALTER TABLE [App_UserPermissions] ADD [CanUseDevConsole] BIT NOT NULL CONSTRAINT [DF_App_UserPermissions_CanUseDevConsole] DEFAULT 0;";
     await using (var ensure = new SqlCommand(ensureSql, connection))
@@ -630,9 +696,12 @@ static async Task<int> UpsertCanUseDevConsoleAsync(string connectionString, stri
         CREATE TABLE [App_UserPermissions] (
             [Login] NVARCHAR(100) NOT NULL PRIMARY KEY,
             [CanCreatePosts] BIT NOT NULL DEFAULT 0,
+            [CanTechAdmin] BIT NOT NULL DEFAULT 0,
             [CanUseDevConsole] BIT NOT NULL DEFAULT 0,
             [UpdatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
         );
+        IF COL_LENGTH('App_UserPermissions', 'CanTechAdmin') IS NULL
+            ALTER TABLE [App_UserPermissions] ADD [CanTechAdmin] BIT NOT NULL CONSTRAINT [DF_App_UserPermissions_CanTechAdmin] DEFAULT 0;
         IF COL_LENGTH('App_UserPermissions', 'CanUseDevConsole') IS NULL
             ALTER TABLE [App_UserPermissions] ADD [CanUseDevConsole] BIT NOT NULL CONSTRAINT [DF_App_UserPermissions_CanUseDevConsole] DEFAULT 0;";
     await using (var ensure = new SqlCommand(ensureSql, connection))
@@ -654,6 +723,49 @@ static async Task<int> UpsertCanUseDevConsoleAsync(string connectionString, stri
     await using var cmd = new SqlCommand(upsertSql, connection);
     cmd.Parameters.AddWithValue("@Login", login);
     cmd.Parameters.AddWithValue("@CanUseDevConsole", canUseDevConsole ? 1 : 0);
+    var result = await cmd.ExecuteScalarAsync();
+    return Convert.ToInt32(result ?? 0);
+}
+
+static async Task<int> UpsertCanTechAdminAsync(string connectionString, string login, bool canTechAdmin)
+{
+    await using var connection = new SqlConnection(connectionString);
+    await connection.OpenAsync();
+
+    const string ensureSql = @"
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'App_UserPermissions')
+        CREATE TABLE [App_UserPermissions] (
+            [Login] NVARCHAR(100) NOT NULL PRIMARY KEY,
+            [CanCreatePosts] BIT NOT NULL DEFAULT 0,
+            [CanTechAdmin] BIT NOT NULL DEFAULT 0,
+            [CanUseDevConsole] BIT NOT NULL DEFAULT 0,
+            [UpdatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+        );
+        IF COL_LENGTH('App_UserPermissions', 'CanTechAdmin') IS NULL
+            ALTER TABLE [App_UserPermissions] ADD [CanTechAdmin] BIT NOT NULL CONSTRAINT [DF_App_UserPermissions_CanTechAdmin] DEFAULT 0;
+        IF COL_LENGTH('App_UserPermissions', 'CanUseDevConsole') IS NULL
+            ALTER TABLE [App_UserPermissions] ADD [CanUseDevConsole] BIT NOT NULL CONSTRAINT [DF_App_UserPermissions_CanUseDevConsole] DEFAULT 0;";
+    await using (var ensure = new SqlCommand(ensureSql, connection))
+    {
+        await ensure.ExecuteNonQueryAsync();
+    }
+
+    const string upsertSql = @"
+        IF EXISTS (SELECT 1 FROM [App_UserPermissions] WHERE [Login] = @Login)
+            UPDATE [App_UserPermissions]
+            SET [CanTechAdmin] = @CanTechAdmin,
+                [CanCreatePosts] = CASE WHEN @CanTechAdmin = 1 THEN 1 ELSE [CanCreatePosts] END,
+                [CanUseDevConsole] = CASE WHEN @CanTechAdmin = 1 THEN 1 ELSE [CanUseDevConsole] END,
+                [UpdatedAt] = GETUTCDATE()
+            WHERE [Login] = @Login;
+        ELSE
+            INSERT INTO [App_UserPermissions] ([Login], [CanCreatePosts], [CanTechAdmin], [CanUseDevConsole], [UpdatedAt])
+            VALUES (@Login, CASE WHEN @CanTechAdmin = 1 THEN 1 ELSE 0 END, @CanTechAdmin, CASE WHEN @CanTechAdmin = 1 THEN 1 ELSE 0 END, GETUTCDATE());
+        SELECT @@ROWCOUNT;";
+
+    await using var cmd = new SqlCommand(upsertSql, connection);
+    cmd.Parameters.AddWithValue("@Login", login);
+    cmd.Parameters.AddWithValue("@CanTechAdmin", canTechAdmin ? 1 : 0);
     var result = await cmd.ExecuteScalarAsync();
     return Convert.ToInt32(result ?? 0);
 }

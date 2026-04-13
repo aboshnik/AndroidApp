@@ -37,5 +37,8 @@ interface EmployeeApiService {
 
     @POST("api/employee/login")
     suspend fun login(@Body request: EmployeeLoginRequest): Response<EmployeeLoginResponse>
+
+    @POST("api/employee/confirm-device-login")
+    suspend fun confirmDeviceLogin(@Body request: ConfirmDeviceLoginRequest): Response<EmployeeLoginResponse>
 }
 

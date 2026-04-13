@@ -1,177 +1,186 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/poll_editor_bg">
 
-    <!-- Шапка: закрыть, заголовок, Далее -->
-    <ImageView
-        android:id="@+id/btnClose"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
-        android:layout_marginStart="11dp"
-        android:src="@drawable/ic_create_post_close"
-        android:tint="@color/poll_editor_accent"
-        android:contentDescription="@string/create_post_close"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintVertical_chainStyle="packed"
-        android:layout_marginTop="12dp" />
-
-    <TextView
-        android:id="@+id/tvTitle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/create_post_title"
-        android:textColor="@color/poll_editor_text"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        app:layout_constraintTop_toTopOf="@id/btnClose"
-        app:layout_constraintBottom_toBottomOf="@id/btnClose"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
-
-    <TextView
-        android:id="@+id/btnNext"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginEnd="11dp"
-        android:text="@string/create_post_next"
-        android:textColor="@color/poll_editor_accent"
-        android:textSize="15sp"
-        android:textStyle="bold"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:paddingVertical="8dp"
-        android:paddingHorizontal="10dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="@id/btnClose"
-        app:layout_constraintBottom_toBottomOf="@id/btnClose" />
-
-    <!-- Поле ввода текста -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/tilPost"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="11dp"
-        android:layout_marginEnd="11dp"
-        android:layout_marginTop="16dp"
-        app:boxStrokeColor="@color/poll_editor_divider"
-        app:boxBackgroundColor="@android:color/white"
-        app:hintEnabled="true"
-        app:endIconMode="custom"
-        app:endIconDrawable="@drawable/ic_create_post_clip"
-        app:endIconTint="@color/poll_editor_accent"
-        app:layout_constraintTop_toBottomOf="@id/btnClose"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/etPostText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:minLines="3"
-            android:maxLines="12"
-            android:gravity="top|start"
-            android:inputType="textMultiLine|textCapSentences"
-            android:textColor="@color/text_primary"
-            android:textColorHint="@color/feed_date"
-            android:hint="@string/create_post_hint" />
-    </com.google.android.material.textfield.TextInputLayout>
-
     <LinearLayout
-        android:id="@+id/postTypeCard"
+        android:id="@+id/topBarCreatePost"
         android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="11dp"
-        android:layout_marginEnd="11dp"
-        android:layout_marginTop="8dp"
-        android:orientation="vertical"
-        android:padding="12dp"
-        android:background="@drawable/bg_poll_editor_card"
-        app:layout_constraintTop_toBottomOf="@id/tilPost"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="12dp"
+        app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <RadioGroup
-            android:id="@+id/rgPostType"
-            android:layout_width="match_parent"
+        <TextView
+            android:id="@+id/btnCreatePostBack"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:gravity="center"
+            android:paddingHorizontal="12dp"
+            android:text="Назад"
+            android:textColor="@color/button_primary"
+            android:textStyle="bold"
+            android:background="@drawable/bg_feed_action_button_ripple" />
+
+        <TextView
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:text="Новая новость"
+            android:textColor="@color/text_primary"
+            android:textStyle="bold"
+            android:textSize="18sp" />
 
-            <RadioButton
-                android:id="@+id/rbPostImportant"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/create_post_type_important"
-                android:textColor="@color/poll_editor_text"
-                android:textStyle="bold" />
+        <TextView
+            android:id="@+id/btnPublishPost"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:gravity="center"
+            android:paddingHorizontal="12dp"
+            android:text="Опубликовать"
+            android:textColor="@color/button_primary"
+            android:textStyle="bold"
+            android:background="@drawable/bg_feed_action_button_ripple" />
+    </LinearLayout>
 
-            <RadioButton
-                android:id="@+id/rbPostEveryday"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:checked="true"
-                android:text="@string/create_post_type_everyday"
-                android:textColor="@color/poll_editor_text"
-                android:textStyle="bold" />
-        </RadioGroup>
+    <ScrollView
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toBottomOf="@id/topBarCreatePost"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="6dp">
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <EditText
+                android:id="@+id/etPostText"
+                android:layout_width="match_parent"
+                android:layout_height="120dp"
+                android:gravity="top|start"
+                android:hint="Напишите новость..."
+                android:padding="12dp"
+                android:background="@drawable/bg_profile_action_row"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_secondary"
+                android:maxLength="3333"
+                android:inputType="textCapSentences|textMultiLine" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/btnAttachMedia"
+                    android:layout_width="0dp"
+                    android:layout_height="38dp"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="Фото/видео"
+                    android:textColor="@color/button_primary"
+                    android:textStyle="bold"
+                    android:background="@drawable/bg_feed_action_button_ripple" />
+
+                <TextView
+                    android:id="@+id/btnAttachPoll"
+                    android:layout_width="0dp"
+                    android:layout_height="38dp"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="Создать опрос"
+                    android:textColor="@color/button_primary"
+                    android:textStyle="bold"
+                    android:background="@drawable/bg_feed_action_button_ripple" />
+            </LinearLayout>
 
             <TextView
-                android:layout_width="0dp"
+                android:id="@+id/tvPollChip"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:text="Важные посты будут заметнее в ленте."
-                android:textColor="@color/poll_editor_hint"
-                android:textSize="12sp" />
+                android:layout_marginTop="10dp"
+                android:padding="10dp"
+                android:background="@drawable/bg_reply_block"
+                android:textColor="@color/text_primary"
+                android:visibility="gone" />
 
             <TextView
-                android:layout_width="0dp"
+                android:id="@+id/btnClearPoll"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Обычные публикации для ежедневного общения."
-                android:textColor="@color/poll_editor_hint"
-                android:textSize="12sp"
-                android:gravity="center" />
+                android:layout_marginTop="6dp"
+                android:text="Убрать опрос"
+                android:textColor="#C62828" />
+
+            <LinearLayout
+                android:id="@+id/postMediaContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/postMediaTop"
+                    android:layout_width="match_parent"
+                    android:layout_height="190dp"
+                    android:scaleType="centerCrop"
+                    android:background="@drawable/bg_profile_action_row" />
+
+                <LinearLayout
+                    android:id="@+id/postMediaBottomRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="100dp"
+                    android:layout_marginTop="6dp"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:id="@+id/postMediaBottomLeft"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:scaleType="centerCrop"
+                        android:background="@drawable/bg_profile_action_row" />
+
+                    <FrameLayout
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:layout_marginStart="6dp">
+
+                        <ImageView
+                            android:id="@+id/postMediaBottomRight"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:scaleType="centerCrop"
+                            android:background="@drawable/bg_profile_action_row" />
+
+                        <TextView
+                            android:id="@+id/postMediaMoreOverlay"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:gravity="center"
+                            android:background="#66000000"
+                            android:textColor="@android:color/white"
+                            android:textStyle="bold"
+                            android:textSize="20sp"
+                            android:visibility="gone" />
+                    </FrameLayout>
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/tvPollStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:gravity="center"
-            android:text="Опрос: настроен"
-            android:textColor="@color/poll_editor_accent"
-            android:textStyle="bold"
-            android:textSize="13sp"
-            android:visibility="gone" />
-    </LinearLayout>
-
-    <!-- Превью прикрепленных фото/видео -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recyclerAttachments"
-        android:layout_width="0dp"
-        android:layout_height="72dp"
-        android:layout_marginStart="11dp"
-        android:layout_marginEnd="11dp"
-        android:layout_marginBottom="10dp"
-        android:visibility="gone"
-        app:layout_constraintTop_toBottomOf="@id/postTypeCard"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
-
+    </ScrollView>
 </androidx.constraintlayout.widget.ConstraintLayout>

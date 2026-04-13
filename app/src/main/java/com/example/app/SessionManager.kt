@@ -15,9 +15,12 @@ object SessionManager {
     private const val KEY_LAST_NAME = "lastName"
     private const val KEY_FIRST_NAME = "firstName"
     private const val KEY_PHONE = "phone"
+    private const val KEY_LAST_LOGIN = "lastLogin"
     private const val KEY_CAN_CREATE_POSTS = "canCreatePosts"
+    private const val KEY_IS_TECH_ADMIN = "isTechAdmin"
     private const val KEY_CAN_USE_DEV_CONSOLE = "canUseDevConsole"
     private const val KEY_LAST_ACTIVE = "last_active_ms"
+    private const val KEY_REMEMBER_ME = "rememberMe"
 
     private const val TIMEOUT_MS = 5 * 60 * 1000L
 
@@ -28,6 +31,7 @@ object SessionManager {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val login = p.getString(KEY_LOGIN, "")?.trim().orEmpty()
         if (login.isBlank()) return false
+        if (p.getBoolean(KEY_REMEMBER_ME, false)) return true
         val last = p.getLong(KEY_LAST_ACTIVE, 0L)
         if (last == 0L) return false
         return (System.currentTimeMillis() - last) <= TIMEOUT_MS
@@ -48,16 +52,21 @@ object SessionManager {
         firstName: String,
         phone: String,
         canCreatePosts: Boolean,
-        canUseDevConsole: Boolean
+        isTechAdmin: Boolean,
+        canUseDevConsole: Boolean,
+        rememberMe: Boolean
     ) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_LOGIN, login)
+            .putString(KEY_LAST_LOGIN, login)
             .putString(KEY_EMPLOYEE_ID, employeeId)
             .putString(KEY_LAST_NAME, lastName)
             .putString(KEY_FIRST_NAME, firstName)
             .putString(KEY_PHONE, phone)
             .putBoolean(KEY_CAN_CREATE_POSTS, canCreatePosts)
+            .putBoolean(KEY_IS_TECH_ADMIN, isTechAdmin)
             .putBoolean(KEY_CAN_USE_DEV_CONSOLE, canUseDevConsole)
+            .putBoolean(KEY_REMEMBER_ME, rememberMe)
             .putLong(KEY_LAST_ACTIVE, System.currentTimeMillis())
             .apply()
     }
@@ -73,21 +82,30 @@ object SessionManager {
             .remove(KEY_FIRST_NAME)
             .remove(KEY_PHONE)
             .remove(KEY_CAN_CREATE_POSTS)
+            .remove(KEY_IS_TECH_ADMIN)
             .remove(KEY_CAN_USE_DEV_CONSOLE)
+            .remove(KEY_REMEMBER_ME)
             .remove(KEY_LAST_ACTIVE)
             .apply()
     }
 
+    fun getLastLogin(context: Context): String {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_LAST_LOGIN, "")
+            ?.trim()
+            .orEmpty()
+    }
+
     fun startHomeWithSavedSession(context: Context) {
-        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val i = Intent(context, HomeActivity::class.java).apply {
-            putExtra("login", p.getString(KEY_LOGIN, "") ?: "")
-            putExtra("employeeId", p.getString(KEY_EMPLOYEE_ID, "") ?: "")
-            putExtra("lastName", p.getString(KEY_LAST_NAME, "") ?: "")
-            putExtra("firstName", p.getString(KEY_FIRST_NAME, "") ?: "")
-            putExtra("phone", p.getString(KEY_PHONE, "") ?: "")
-            putExtra("canCreatePosts", p.getBoolean(KEY_CAN_CREATE_POSTS, false))
-            putExtra("canUseDevConsole", p.getBoolean(KEY_CAN_USE_DEV_CONSOLE, false))
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        }
+        context.startActivity(i)
+    }
+
+    fun startChatsWithSavedSession(context: Context) {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val i = Intent(context, com.example.app.chats.ChatsActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
         context.startActivity(i)
@@ -109,9 +127,23 @@ object SessionManager {
         return false
     }
 
+    fun forceLogoutToAuth(activity: androidx.appcompat.app.AppCompatActivity, message: String) {
+        clear(activity)
+        Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
+        val i = Intent(activity, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        }
+        activity.startActivity(i)
+        activity.finishAffinity()
+    }
+
     private fun scheduleAutoLogout(activity: AppCompatActivity) {
         // Cancel previous scheduled logout (if any).
         logoutTask?.let { mainHandler.removeCallbacks(it) }
+        if (activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_REMEMBER_ME, false)) {
+            logoutTask = null
+            return
+        }
 
         // After touch() in requireActive(), last_active_ms is "now", so we can just post TIMEOUT_MS.
         val actRef = WeakReference(activity)

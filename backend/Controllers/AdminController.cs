@@ -33,22 +33,30 @@ public class AdminController : ControllerBase
         const string upsertSql = @"
             IF EXISTS (SELECT 1 FROM [App_UserPermissions] WHERE [Login] = @Login)
                 UPDATE [App_UserPermissions]
-                SET [CanCreatePosts] = @CanCreatePosts, [UpdatedAt] = GETUTCDATE()
+                SET [CanCreatePosts] = CASE WHEN @CanTechAdmin = 1 THEN 1 ELSE @CanCreatePosts END,
+                    [CanTechAdmin] = @CanTechAdmin,
+                    [CanUseDevConsole] = CASE WHEN @CanTechAdmin = 1 THEN 1 ELSE [CanUseDevConsole] END,
+                    [UpdatedAt] = GETUTCDATE()
                 WHERE [Login] = @Login;
             ELSE
-                INSERT INTO [App_UserPermissions] ([Login], [CanCreatePosts], [UpdatedAt])
-                VALUES (@Login, @CanCreatePosts, GETUTCDATE());";
+                INSERT INTO [App_UserPermissions] ([Login], [CanCreatePosts], [CanTechAdmin], [CanUseDevConsole], [UpdatedAt])
+                VALUES (@Login, CASE WHEN @CanTechAdmin = 1 THEN 1 ELSE @CanCreatePosts END, @CanTechAdmin, CASE WHEN @CanTechAdmin = 1 THEN 1 ELSE 0 END, GETUTCDATE());";
         await using (var cmd = new SqlCommand(upsertSql, conn))
         {
             cmd.Parameters.AddWithValue("@Login", request.Login.Trim());
             cmd.Parameters.AddWithValue("@CanCreatePosts", request.CanCreatePosts ? 1 : 0);
+            cmd.Parameters.AddWithValue("@CanTechAdmin", request.CanTechAdmin ? 1 : 0);
             await cmd.ExecuteNonQueryAsync();
         }
 
-        var title = request.CanCreatePosts ? "Доступ выдан" : "Доступ отозван";
-        var body = request.CanCreatePosts
-            ? "Технический администратор выдал вам доступ к публикации новостей."
-            : "Технический администратор отозвал у вас доступ к публикации новостей.";
+        var title = request.CanTechAdmin
+            ? "Назначен технический администратор"
+            : (request.CanCreatePosts ? "Доступ выдан" : "Доступ отозван");
+        var body = request.CanTechAdmin
+            ? "Вам выданы права технического администратора (полный доступ)."
+            : (request.CanCreatePosts
+                ? "Технический администратор выдал вам доступ к публикации новостей."
+                : "Технический администратор отозвал у вас доступ к публикации новостей.");
 
         var id = await InsertNotificationAsync(cs, request.Login.Trim(), "permissions", title, body, "open_profile", null);
         if (FcmPush.IsConfigured())
@@ -168,8 +176,14 @@ public class AdminController : ControllerBase
             CREATE TABLE [App_UserPermissions] (
                 [Login] NVARCHAR(100) NOT NULL PRIMARY KEY,
                 [CanCreatePosts] BIT NOT NULL DEFAULT 0,
+                [CanTechAdmin] BIT NOT NULL DEFAULT 0,
+                [CanUseDevConsole] BIT NOT NULL DEFAULT 0,
                 [UpdatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
-            );";
+            );
+            IF COL_LENGTH('App_UserPermissions', 'CanTechAdmin') IS NULL
+                ALTER TABLE [App_UserPermissions] ADD [CanTechAdmin] BIT NOT NULL CONSTRAINT [DF_App_UserPermissions_CanTechAdmin] DEFAULT 0;
+            IF COL_LENGTH('App_UserPermissions', 'CanUseDevConsole') IS NULL
+                ALTER TABLE [App_UserPermissions] ADD [CanUseDevConsole] BIT NOT NULL CONSTRAINT [DF_App_UserPermissions_CanUseDevConsole] DEFAULT 0;";
         await using var cmd = new SqlCommand(createSql, connection);
         await cmd.ExecuteNonQueryAsync();
     }
@@ -223,7 +237,7 @@ public class AdminController : ControllerBase
     }
 }
 
-public record SetPermissionsRequest(string Login, bool CanCreatePosts);
+public record SetPermissionsRequest(string Login, bool CanCreatePosts, bool CanTechAdmin = false);
 public record NotifyTestRequest(string? Login);
 public record NotifyUpdateRequest(string? VersionCode, bool SendPush);
 public record AdminActionResponse(bool Success, string Message);

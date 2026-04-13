@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/poll_editor_bg">
+
+    <LinearLayout
+        android:id="@+id/topBarRegister"
+        android:layout_width="0dp"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="12dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <TextView
+            android:id="@+id/btnRegisterBack"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:gravity="center"
+            android:paddingHorizontal="12dp"
+            android:text="Назад"
+            android:textColor="@color/button_primary"
+            android:textStyle="bold"
+            android:background="@drawable/bg_feed_action_button_ripple" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:text="Регистрация"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <EditText
+        android:id="@+id/etEmployeeId"
+        android:layout_width="0dp"
+        android:layout_height="52dp"
+        android:layout_marginTop="28dp"
+        android:layout_marginHorizontal="20dp"
+        android:hint="Табельный номер"
+        android:background="@drawable/bg_input_outline"
+        android:gravity="center"
+        android:textSize="15sp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="#B7B7B7"
+        app:layout_constraintTop_toBottomOf="@id/topBarRegister"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <EditText
+        android:id="@+id/etPhone"
+        android:layout_width="0dp"
+        android:layout_height="52dp"
+        android:layout_marginTop="14dp"
+        android:layout_marginHorizontal="20dp"
+        android:hint="Телефон"
+        android:background="@drawable/bg_input_outline"
+        android:gravity="center"
+        android:textSize="15sp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="#B7B7B7"
+        android:inputType="phone"
+        app:layout_constraintTop_toBottomOf="@id/etEmployeeId"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnRegisterNow"
+        style="@style/Widget.MaterialComponents.Button"
+        android:layout_width="0dp"
+        android:layout_height="52dp"
+        android:layout_marginTop="18dp"
+        android:layout_marginHorizontal="20dp"
+        android:text="Зарегистрироваться"
+        android:textAllCaps="false"
+        android:textColor="@color/white"
+        android:textSize="15sp"
+        app:cornerRadius="7dp"
+        app:backgroundTint="@color/button_primary"
+        app:layout_constraintTop_toBottomOf="@id/etPhone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
+

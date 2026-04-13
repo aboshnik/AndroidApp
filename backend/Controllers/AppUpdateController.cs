@@ -26,7 +26,7 @@ public class AppUpdateController : ControllerBase
         var apkPath = Path.Combine(apkDir, "app-latest.bin");
         if (!System.IO.File.Exists(apkPath))
         {
-            return NotFound(new AppLatestResponse(0, null, "APK file not found: wwwroot/apk/app-latest.bin"));
+            return NotFound(new AppLatestResponse(0, 0, null, "APK file not found: wwwroot/apk/app-latest.bin"));
         }
 
         var versionFile = Path.Combine(apkDir, "latest_version.txt");
@@ -36,11 +36,21 @@ public class AppUpdateController : ControllerBase
             var s = System.IO.File.ReadAllText(versionFile).Trim();
             int.TryParse(s, out versionCode);
         }
+        var minSupportedFile = Path.Combine(apkDir, "min_supported_version.txt");
+        var minSupportedVersion = versionCode;
+        if (System.IO.File.Exists(minSupportedFile))
+        {
+            var s = System.IO.File.ReadAllText(minSupportedFile).Trim();
+            if (int.TryParse(s, out var parsed))
+            {
+                minSupportedVersion = parsed;
+            }
+        }
 
         var baseUrl = $"{Request.Scheme}://{Request.Host.Value}".TrimEnd('/');
         var apkUrl = $"{baseUrl}/api/app/download";
 
-        return Ok(new AppLatestResponse(versionCode, apkUrl, "OK"));
+        return Ok(new AppLatestResponse(versionCode, minSupportedVersion, apkUrl, "OK"));
     }
 
     
@@ -59,5 +69,5 @@ public class AppUpdateController : ControllerBase
     }
 }
 
-public record AppLatestResponse(int VersionCode, string? ApkUrl, string Message);
+public record AppLatestResponse(int VersionCode, int MinSupportedVersion, string? ApkUrl, string Message);
 

@@ -2,340 +2,187 @@ package com.example.app
 
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
+import android.widget.ImageView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.app.api.ApiClient
 import com.example.app.api.PollItem
 import com.example.app.api.PostItem
 import com.example.app.api.VoteRequest
+import com.example.app.chats.ChatsActivity
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class HomeActivity : BaseActivity() {
-    private lateinit var recyclerFeed: RecyclerView
-    private lateinit var feedProgress: ProgressBar
-    private lateinit var feedEmpty: TextView
-    private lateinit var notifBadge: TextView
-    private lateinit var adapter: FeedAdapter
-    private val logTag = "HomeActivityNet"
-    private var canUseDevConsole: Boolean = false
-    private var currentLogin: String = ""
-    private var currentEmployeeId: String = ""
-    private var currentLastName: String = ""
-    private var currentFirstName: String = ""
-    private var currentPhone: String = ""
-    private var currentCanCreatePosts: Boolean = false
-    private var feedAutoRefreshJob: kotlinx.coroutines.Job? = null
+    override fun swipeTabIndex(): Int = 0
+    private val autoRefreshIntervalMs = 5000L
+    private val autoRefreshHandler = Handler(Looper.getMainLooper())
+    private val autoRefreshRunnable = object : Runnable {
+        override fun run() {
+            loadFeed()
+            autoRefreshHandler.postDelayed(this, autoRefreshIntervalMs)
+        }
+    }
 
+    private lateinit var recycler: RecyclerView
+    private lateinit var progress: ProgressBar
+    private lateinit var empty: TextView
+    private lateinit var adapter: HomeFeedAdapter
+
+    private var employeeId: String = ""
+    private var login: String = ""
+    private var canDeletePosts: Boolean = false
+    private val openCreatePost = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) {
+        if (it.resultCode == RESULT_OK) loadFeed()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!SessionManager.requireActive(this)) return
         setContentView(R.layout.activity_home)
 
         val auth = getSharedPreferences("auth", MODE_PRIVATE)
-        currentLogin = (intent.getStringExtra("login") ?: auth.getString("login", "")).orEmpty().trim()
-        currentEmployeeId = (intent.getStringExtra("employeeId") ?: auth.getString("employeeId", "")).orEmpty()
-        currentLastName = (intent.getStringExtra("lastName") ?: auth.getString("lastName", "")).orEmpty()
-        currentFirstName = (intent.getStringExtra("firstName") ?: auth.getString("firstName", "")).orEmpty()
-        currentPhone = (intent.getStringExtra("phone") ?: auth.getString("phone", "")).orEmpty()
-        currentCanCreatePosts = intent.getBooleanExtra("canCreatePosts", auth.getBoolean("canCreatePosts", false))
-        canUseDevConsole = intent.getBooleanExtra("canUseDevConsole", auth.getBoolean("canUseDevConsole", false))
+        employeeId = auth.getString("employeeId", "")?.trim().orEmpty()
+        login = auth.getString("login", "")?.trim().orEmpty()
+        canDeletePosts = auth.getBoolean("canCreatePosts", false)
 
-        // Ensure background notifications can work (login stored for Worker)
-        currentLogin.takeIf { it.isNotBlank() }?.let { login ->
-            auth.edit()
-                .putString("login", login)
-                .putString("employeeId", currentEmployeeId)
-                .putString("lastName", currentLastName)
-                .putString("firstName", currentFirstName)
-                .putString("phone", currentPhone)
-                .putBoolean("canCreatePosts", currentCanCreatePosts)
-                .putBoolean("canUseDevConsole", canUseDevConsole)
-                .apply()
-            NotificationsWorker.schedule(this)
-        }
+        recycler = findViewById(R.id.recyclerHomeFeed)
+        progress = findViewById(R.id.homeProgress)
+        empty = findViewById(R.id.homeEmpty)
 
-        recyclerFeed = findViewById(R.id.recyclerFeed)
-        feedProgress = findViewById(R.id.feedProgress)
-        feedEmpty = findViewById(R.id.feedEmpty)
-        notifBadge = findViewById(R.id.tvNotifBadge)
-
-        recyclerFeed.layoutManager = LinearLayoutManager(this)
-
-        findViewById<View>(R.id.navHome).setOnClickListener { }
-        findViewById<View>(R.id.navCalendar).setOnClickListener {
-            val i = Intent(this, CalendarActivity::class.java)
-            i.putExtra("employeeId", currentEmployeeId)
-            i.putExtra("login", currentLogin)
-            i.putExtra("lastName", currentLastName)
-            i.putExtra("firstName", currentFirstName)
-            i.putExtra("phone", currentPhone)
-            i.putExtra("canCreatePosts", currentCanCreatePosts)
-            i.putExtra("canUseDevConsole", canUseDevConsole)
-            startActivity(i)
-        }
-        findViewById<View>(R.id.navProfile).setOnClickListener { openProfile() }
-
-        val canCreatePosts = currentCanCreatePosts
-        adapter = FeedAdapter(
-            canManagePosts = canCreatePosts,
+        adapter = HomeFeedAdapter(
+            canDeletePosts = canDeletePosts,
             onDeletePost = { post -> deletePost(post.id) },
             onVote = { postId, optionId, onDone -> vote(postId, optionId, onDone) }
         )
-        recyclerFeed.adapter = adapter
+        recycler.layoutManager = LinearLayoutManager(this)
+        recycler.adapter = adapter
 
-        val addWrap = findViewById<View>(R.id.btnAddWrap)
-        addWrap.visibility = if (canCreatePosts) View.VISIBLE else View.GONE
-        addWrap.setOnClickListener { openCreatePost() }
-        findViewById<View>(R.id.btnNotifications).setOnClickListener {
-            openNotifications()
+        findViewById<View>(R.id.btnCreateNews).setOnClickListener {
+            openCreatePost.launch(Intent(this, CreatePostActivity::class.java))
         }
+
+        findViewById<View>(R.id.navHome).setOnClickListener { setBottomTab("home") }
+        findViewById<View>(R.id.navChats).setOnClickListener {
+            setBottomTab("chats")
+            startActivity(Intent(this, ChatsActivity::class.java))
+        }
+        findViewById<View>(R.id.navSettings).setOnClickListener {
+            setBottomTab("settings")
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        findViewById<View>(R.id.navProfile).setOnClickListener {
+            setBottomTab("profile")
+            startActivity(Intent(this, ProfileActivity::class.java))
+        }
+
+        setBottomTab("home")
+        loadFeed()
     }
 
     override fun onResume() {
         super.onResume()
-        if (!SessionManager.requireActive(this)) return
-        loadFeed()
-        loadNotificationsBadge()
-        startFeedAutoRefresh()
-
-        // Re-schedule in case app was restored without a fresh login
-        val login = getSharedPreferences("auth", MODE_PRIVATE).getString("login", "")?.trim().orEmpty()
-        if (login.isNotBlank()) {
-            NotificationsWorker.schedule(this)
-        }
+        setBottomTab("home")
+        startChatsUnreadBadgeAutoRefresh(employeeId = employeeId, badgeViewId = R.id.navChatsBadge)
+        autoRefreshHandler.removeCallbacks(autoRefreshRunnable)
+        autoRefreshHandler.postDelayed(autoRefreshRunnable, autoRefreshIntervalMs)
     }
 
     override fun onPause() {
         super.onPause()
-        feedAutoRefreshJob?.cancel()
-        feedAutoRefreshJob = null
+        stopChatsUnreadBadgeAutoRefresh()
+        autoRefreshHandler.removeCallbacks(autoRefreshRunnable)
     }
 
-
-    private fun openNotifications() {
-        val login = currentLogin
-        if (login.isBlank()) {
-            Toast.makeText(this, getString(R.string.error_network), Toast.LENGTH_SHORT).show()
-            return
+    private fun setBottomTab(tab: String) {
+        val active = getColor(R.color.button_primary)
+        val inactive = getColor(R.color.text_secondary)
+        fun setItem(iconId: Int, textId: Int, activeTab: Boolean) {
+            findViewById<ImageView>(iconId).setColorFilter(if (activeTab) active else inactive)
+            val tv = findViewById<TextView>(textId)
+            tv.setTextColor(if (activeTab) active else inactive)
+            tv.setTypeface(null, if (activeTab) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         }
-        val i = Intent(this, NotificationsActivity::class.java)
-        i.putExtra("login", login)
-        startActivity(i)
+        setItem(R.id.navHomeIcon, R.id.navHomeText, tab == "home")
+        setItem(R.id.navChatsIcon, R.id.navChatsText, tab == "chats")
+        setItem(R.id.navSettingsIcon, R.id.navSettingsText, tab == "settings")
+        setItem(R.id.navProfileIcon, R.id.navProfileText, tab == "profile")
     }
 
-    private fun openCreatePost() {
-        val canCreatePosts = currentCanCreatePosts
-        if (!canCreatePosts) {
-            Toast.makeText(this, getString(R.string.no_permission_create_posts), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val login = currentLogin
-        if (login.isNullOrBlank()) {
-            Toast.makeText(this, getString(R.string.error_network), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val i = Intent(this, CreatePostActivity::class.java)
-        i.putExtra("login", login)
-        startActivity(i)
-    }
-
-    private fun loadNotificationsBadge() {
-        val login = currentLogin
-        if (login.isBlank()) return
+    private fun loadFeed() {
+        progress.visibility = View.VISIBLE
+        empty.visibility = View.GONE
 
         scope.launch {
             try {
-                val response = withContext(Dispatchers.IO) {
-                    ApiClient.notificationsApi.getNotifications(login = login, take = 20)
+                val resp = withContext(Dispatchers.IO) {
+                    ApiClient.postApi.getFeed(login = login.ifBlank { null })
                 }
-                val body = response.body()
-                if (!response.isSuccessful || body == null || !body.success) {
-                    notifBadge.visibility = View.GONE
+                progress.visibility = View.GONE
+                val body = resp.body()
+                if (!resp.isSuccessful || body == null || !body.success) {
+                    empty.text = body?.message ?: getString(R.string.error_network)
+                    empty.visibility = View.VISIBLE
+                    adapter.submit(emptyList())
                     return@launch
                 }
-                val unread = body.unreadCount
-                if (unread > 0) {
-                    notifBadge.text = if (unread > 9) "9+" else unread.toString()
-                    notifBadge.visibility = View.VISIBLE
-                } else {
-                    notifBadge.visibility = View.GONE
-                }
-            } catch (_: Exception) {
-                notifBadge.visibility = View.GONE
-            }
-        }
-    }
-
-    private fun loadFeed(showSpinner: Boolean = true) {
-        if (showSpinner) feedProgress.visibility = View.VISIBLE
-        feedEmpty.visibility = View.GONE
-        recyclerFeed.visibility = View.VISIBLE
-
-        scope.launch {
-            try {
-                val response = withContext(Dispatchers.IO) {
-                    ApiClient.postApi.getFeed(login = currentLogin.takeIf { it.isNotBlank() })
-                }
-                feedProgress.visibility = View.GONE
-                val body = response.body()
-                if (!response.isSuccessful || body == null) {
-                    feedEmpty.text = body?.message ?: getString(R.string.error_network)
-                    feedEmpty.visibility = View.VISIBLE
-                    return@launch
-                }
-                val posts = body.posts ?: emptyList()
-                adapter.submitList(posts)
-                if (posts.isEmpty()) {
-                    feedEmpty.visibility = View.VISIBLE
-                } else {
-                    feedEmpty.visibility = View.GONE
-                }
+                val list: List<PostItem> = body.posts.orEmpty()
+                adapter.submit(list)
+                empty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
+                if (list.isEmpty()) empty.text = "Пока нет новостей"
             } catch (e: Exception) {
-                feedProgress.visibility = View.GONE
-                val details = buildErrorDetails(e)
-                Log.e(logTag, details, e)
-                feedEmpty.text = "${getString(R.string.error_network)}\n$details"
-                feedEmpty.visibility = View.VISIBLE
-                showNetworkErrorDialog(details)
+                progress.visibility = View.GONE
+                empty.text = "${getString(R.string.error_network)} ${e.message}"
+                empty.visibility = View.VISIBLE
+                adapter.submit(emptyList())
             }
         }
-    }
-
-    private fun startFeedAutoRefresh() {
-        if (feedAutoRefreshJob?.isActive == true) return
-        feedAutoRefreshJob = scope.launch {
-            while (true) {
-                delay(15000)
-                loadFeed(showSpinner = false)
-            }
-        }
-    }
-
-    private fun updatePostPollInList(postId: Int, poll: PollItem?) {
-        if (poll == null) return
-        val current = adapter.currentList
-        if (current.isEmpty()) return
-        val updated = current.map { p ->
-            if (p.id == postId) {
-                PostItem(
-                    id = p.id,
-                    authorLogin = p.authorLogin,
-                    authorName = p.authorName,
-                    content = p.content,
-                    createdAt = p.createdAt,
-                    imageUrl = p.imageUrl,
-                    isImportant = p.isImportant,
-                    expiresAt = p.expiresAt,
-                    likesCount = p.likesCount,
-                    commentsCount = p.commentsCount,
-                    poll = poll
-                )
-            } else p
-        }
-        adapter.submitList(updated)
     }
 
     private fun deletePost(postId: Int) {
-        val login = currentLogin.trim()
-        if (login.isBlank()) {
-            Toast.makeText(this, getString(R.string.error_network), Toast.LENGTH_SHORT).show()
-            return
-        }
-
+        if (login.isBlank()) return
         scope.launch {
             try {
-                val response = withContext(Dispatchers.IO) {
+                val resp = withContext(Dispatchers.IO) {
                     ApiClient.postApi.deletePost(id = postId, login = login)
                 }
-                val body = response.body()
-                if (!response.isSuccessful || body == null || !body.success) {
-                    Toast.makeText(
-                        this@HomeActivity,
-                        body?.message ?: getString(R.string.error_network),
-                        Toast.LENGTH_LONG
-                    ).show()
+                val body = resp.body()
+                if (!resp.isSuccessful || body == null || !body.success) {
+                    safeToast(body?.message ?: getString(R.string.error_network), long = true)
                     return@launch
                 }
-                Toast.makeText(this@HomeActivity, body.message, Toast.LENGTH_SHORT).show()
+                safeToast("Новость удалена")
                 loadFeed()
             } catch (e: Exception) {
-                val details = buildErrorDetails(e)
-                showNetworkErrorDialog(details)
+                safeToast("${getString(R.string.error_network)} ${e.message}", long = true)
             }
         }
     }
 
     private fun vote(postId: Int, optionId: Int, onDone: (PollItem?) -> Unit) {
-        val login = currentLogin.trim()
-        if (login.isBlank()) {
-            Toast.makeText(this, getString(R.string.error_network), Toast.LENGTH_SHORT).show()
-            onDone(null)
-            return
-        }
+        if (login.isBlank()) return
         scope.launch {
             try {
-                val response = withContext(Dispatchers.IO) {
-                    ApiClient.postApi.vote(postId, VoteRequest(login = login, optionId = optionId))
+                val resp = withContext(Dispatchers.IO) {
+                    ApiClient.postApi.vote(id = postId, request = VoteRequest(login = login, optionId = optionId))
                 }
-                val body = response.body()
-                if (!response.isSuccessful || body == null || !body.success) {
-                    Toast.makeText(this@HomeActivity, body?.message ?: getString(R.string.error_network), Toast.LENGTH_SHORT).show()
-                    onDone(null)
+                val body = resp.body()
+                if (!resp.isSuccessful || body == null || !body.success) {
+                    safeToast(body?.message ?: getString(R.string.error_network), long = true)
                     return@launch
                 }
-                Toast.makeText(this@HomeActivity, body.message, Toast.LENGTH_SHORT).show()
                 onDone(body.poll)
-                updatePostPollInList(postId, body.poll)
                 loadFeed()
             } catch (e: Exception) {
-                Toast.makeText(this@HomeActivity, "${getString(R.string.error_network)} ${e.message}", Toast.LENGTH_SHORT).show()
-                onDone(null)
+                safeToast("${getString(R.string.error_network)} ${e.message}", long = true)
             }
         }
     }
-
-    private fun buildErrorDetails(e: Throwable): String {
-        var t: Throwable? = e
-        val chain = mutableListOf<String>()
-        var guard = 0
-        while (t != null && guard < 5) {
-            val name = t.javaClass.simpleName
-            val msg = t.message?.trim().orEmpty()
-            chain += if (msg.isNotBlank()) "$name: $msg" else name
-            t = t.cause
-            guard++
-        }
-        return chain.joinToString(" -> ")
-    }
-
-    private fun showNetworkErrorDialog(details: String) {
-        safeShowDialog(
-            AlertDialog.Builder(this)
-                .setTitle("Подробности ошибки сети")
-                .setMessage(details)
-                .setPositiveButton("OK", null)
-        )
-    }
-
-    private fun openProfile() {
-        val i = Intent(this, ProfileActivity::class.java)
-        i.putExtra("employeeId", currentEmployeeId)
-        i.putExtra("login", currentLogin)
-        i.putExtra("lastName", currentLastName)
-        i.putExtra("firstName", currentFirstName)
-        i.putExtra("phone", currentPhone)
-        i.putExtra("canCreatePosts", currentCanCreatePosts)
-        i.putExtra("canUseDevConsole", canUseDevConsole)
-        startActivity(i)
-        finish()
-    }
 }
+

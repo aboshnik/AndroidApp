@@ -10,6 +10,10 @@
     <string name="btn_login">Войти</string>
     <string name="text_or">или</string>
     <string name="btn_register">Регистрация</string>
+    <string name="device_code_hint">Код пришёл в чат от бота StekloSecurity на другом устройстве. Введите его ниже.</string>
+    <string name="hint_device_code">000000</string>
+    <string name="btn_cancel">Отмена</string>
+    <string name="btn_confirm_code">Подтвердить</string>
 
     <!-- Форма нового сотрудника: шаг 1 (проверка) -->
     <string name="new_employee_title">Регистрация нового сотрудника</string>

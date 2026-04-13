@@ -16,6 +16,7 @@ import java.util.UUID
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+        UserSettings.applyTheme(this)
         ensureNotificationChannels()
         registerFcmTokenOnStartup()
     }

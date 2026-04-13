@@ -94,12 +94,80 @@
         app:layout_constraintTop_toTopOf="@id/etPassword"
         app:layout_constraintBottom_toBottomOf="@id/etPassword" />
 
+    <LinearLayout
+        android:id="@+id/panelDeviceCode"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_marginTop="12dp"
+        android:layout_marginStart="49dp"
+        android:layout_marginEnd="50dp"
+        app:layout_constraintTop_toBottomOf="@id/etPassword"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <TextView
+            android:id="@+id/tvDeviceCodeHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/device_code_hint"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp"
+            android:gravity="center" />
+
+        <EditText
+            android:id="@+id/etDeviceCode"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="8dp"
+            android:hint="@string/hint_device_code"
+            android:background="@drawable/bg_input_outline"
+            android:gravity="center"
+            android:inputType="number"
+            android:maxLength="6"
+            android:textSize="18sp"
+            android:letterSpacing="0.12"
+            android:textColor="@color/text_primary"
+            android:textColorHint="#B7B7B7" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="10dp"
+            android:gravity="center">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnCancelDeviceCode"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/btn_cancel"
+                android:textAllCaps="false" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnConfirmDeviceCode"
+                style="@style/Widget.MaterialComponents.Button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="@string/btn_confirm_code"
+                android:textAllCaps="false"
+                android:textColor="@color/white"
+                app:backgroundTint="@color/button_primary"
+                app:cornerRadius="7dp" />
+        </LinearLayout>
+    </LinearLayout>
+
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnLogin"
         style="@style/Widget.MaterialComponents.Button"
         android:layout_width="0dp"
         android:layout_height="52dp"
-        android:layout_marginTop="18dp"
+        android:layout_marginTop="14dp"
         android:layout_marginStart="49dp"
         android:layout_marginEnd="50dp"
         android:text="@string/btn_login"
@@ -108,7 +176,21 @@
         android:textSize="15sp"
         app:cornerRadius="7dp"
         app:backgroundTint="@color/button_primary"
-        app:layout_constraintTop_toBottomOf="@id/etPassword"
+        app:layout_constraintTop_toBottomOf="@id/cbRememberMe"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <CheckBox
+        android:id="@+id/cbRememberMe"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:layout_marginStart="49dp"
+        android:layout_marginEnd="50dp"
+        android:text="Запомнить меня"
+        android:textColor="@color/text_secondary"
+        android:textSize="14sp"
+        app:layout_constraintTop_toBottomOf="@id/panelDeviceCode"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 

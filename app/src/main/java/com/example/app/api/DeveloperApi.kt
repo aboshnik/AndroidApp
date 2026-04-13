@@ -4,7 +4,8 @@ import com.google.gson.annotations.SerializedName
 
 data class SetPermissionsRequest(
     @SerializedName("login") val login: String,
-    @SerializedName("canCreatePosts") val canCreatePosts: Boolean
+    @SerializedName("canCreatePosts") val canCreatePosts: Boolean,
+    @SerializedName("canTechAdmin") val canTechAdmin: Boolean = false
 )
 
 data class NotifyTestRequest(
