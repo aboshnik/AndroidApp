@@ -122,16 +122,6 @@
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/btnForwardSelected"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:gravity="center"
-            android:paddingHorizontal="12dp"
-            android:text="Переслать"
-            android:textColor="@color/button_primary"
-            android:background="@drawable/bg_feed_action_button_ripple" />
-
-        <TextView
             android:id="@+id/btnDeleteSelected"
             android:layout_width="wrap_content"
             android:layout_height="32dp"

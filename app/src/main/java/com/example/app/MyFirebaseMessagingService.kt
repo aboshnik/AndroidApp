@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 import androidx.core.app.NotificationCompat
 import com.example.app.api.ApiClient
@@ -18,6 +19,27 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 class MyFirebaseMessagingService : FirebaseMessagingService() {
+    companion object {
+        private const val PREFS_NOTIF = "push_notifications"
+        private const val KEY_GENERAL_IDS = "general_ids"
+
+        fun clearTrackedGeneralNotifications(context: Context) {
+            val prefs = context.getSharedPreferences(PREFS_NOTIF, Context.MODE_PRIVATE)
+            val idsRaw = prefs.getString(KEY_GENERAL_IDS, "").orEmpty()
+            if (idsRaw.isNotBlank()) {
+                val nm = NotificationManagerCompat.from(context)
+                idsRaw.split(",")
+                    .mapNotNull { it.trim().toIntOrNull() }
+                    .forEach { id -> nm.cancel(id) }
+            }
+            prefs.edit().remove(KEY_GENERAL_IDS).apply()
+        }
+
+        fun clearChatNotification(context: Context, threadId: Int) {
+            if (threadId <= 0) return
+            NotificationManagerCompat.from(context).cancel(threadId)
+        }
+    }
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
@@ -58,6 +80,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     private fun showSystemNotification(title: String, body: String) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "updates"
+        val notificationId = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
 
         val notification = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -68,7 +91,8 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
-        nm.notify((System.currentTimeMillis() % Int.MAX_VALUE).toInt(), notification)
+        nm.notify(notificationId, notification)
+        rememberGeneralNotificationId(notificationId)
     }
 
     private fun showChatNotification(threadId: Int, threadTitle: String, body: String) {
@@ -168,6 +192,18 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 )
             }
         }
+    }
+
+    private fun rememberGeneralNotificationId(id: Int) {
+        if (id <= 0) return
+        val prefs = getSharedPreferences(PREFS_NOTIF, Context.MODE_PRIVATE)
+        val existing = prefs.getString(KEY_GENERAL_IDS, "").orEmpty()
+            .split(",")
+            .mapNotNull { it.trim().toIntOrNull() }
+            .toMutableList()
+        existing.add(id)
+        val compact = existing.takeLast(30).joinToString(",")
+        prefs.edit().putString(KEY_GENERAL_IDS, compact).apply()
     }
 }
 

@@ -49,10 +49,6 @@ object ApiClient {
         retrofit.create(SecurityApiService::class.java)
     }
 
-    val appUpdateApi: AppUpdateApiService by lazy {
-        retrofit.create(AppUpdateApiService::class.java)
-    }
-
     val pushTokenApi: PushTokenApiService by lazy {
         retrofit.create(PushTokenApiService::class.java)
     }

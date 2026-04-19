@@ -1,8 +1,11 @@
 using System.Text;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.SqlClient;
 using EmployeeApi.Services;
+using EmployeeApi.Hubs;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace EmployeeApi.Controllers;
 
@@ -13,6 +16,7 @@ public class ChatController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly IWebHostEnvironment _env;
     private readonly ChatMessageCipher _cipher;
+    private readonly IHubContext<ChatRealtimeHub> _chatHub;
 
     /// <summary>Боты опросов/анкет — не показываем и удаляем данные из БД (идемпотентно).</summary>
     private const string LegacyPollSurveyBotsInSql =
@@ -33,11 +37,16 @@ public class ChatController : ControllerBase
     private static string LegacyPollSurveyBotThreadExcludeSql(string tableAlias) =>
         $"NOT ({LegacyPollSurveyBotThreadMatchSql(tableAlias)})";
 
-    public ChatController(IConfiguration configuration, IWebHostEnvironment env, ChatMessageCipher cipher)
+    public ChatController(
+        IConfiguration configuration,
+        IWebHostEnvironment env,
+        ChatMessageCipher cipher,
+        IHubContext<ChatRealtimeHub> chatHub)
     {
         _configuration = configuration;
         _env = env;
         _cipher = cipher;
+        _chatHub = chatHub;
     }
 
     [HttpGet("threads")]
@@ -62,6 +71,8 @@ public class ChatController : ControllerBase
             // Support both "employeeId" and stored "card login"
             var normalizedLogin = login.Trim();
             var ownerLogin = await ResolveOwnerLoginAsync(connection, normalizedLogin);
+            await NormalizeDirectThreadsAsync(connection, ownerLogin);
+            await TouchUserPresenceAsync(connection, ownerLogin);
 
             // Seed required threads
             await EnsureSecurityBotThreadAsync(connection, ownerLogin);
@@ -79,6 +90,10 @@ public class ChatController : ControllerBase
                        ISNULL(U.UnreadCount, 0) AS UnreadCount,
                        ISNULL(P.[CanTechAdmin], 0) AS IsTechAdmin,
                        ISNULL(B.[IsOfficial], 0) AS IsOfficialBot,
+                       CASE
+                           WHEN ISNULL(T.[Type], 'bot') = 'user' AND PR.[LastSeenAt] >= DATEADD(MINUTE, -2, GETUTCDATE()) THEN 1
+                           ELSE 0
+                       END AS IsOnline,
                        CASE
                            WHEN ISNULL(T.[Type], 'bot') = 'user' THEN
                                CASE
@@ -106,6 +121,8 @@ public class ChatController : ControllerBase
                   ON P.[Login] = COALESCE(T.[PeerLogin], T.[Title])
                 LEFT JOIN [App_BotProfiles] B
                   ON B.[BotId] = T.[BotId]
+                LEFT JOIN [App_UserPresence] PR
+                  ON PR.[Login] = T.[PeerLogin]
                 LEFT JOIN [App_UserProfile] UP
                   ON UP.[Login] = T.[PeerLogin]
                 WHERE T.[OwnerLogin] = @Login
@@ -117,18 +134,15 @@ public class ChatController : ControllerBase
             cmd.Parameters.AddWithValue("@Login", ownerLogin);
 
             var list = new List<ThreadItem>();
+            var pendingReadChecks = new List<(int Index, string PeerLogin, int LastMessageId)>();
             await using (var reader = await cmd.ExecuteReaderAsync())
             {
                 while (await reader.ReadAsync())
                 {
-                    var avatarRaw = reader.IsDBNull(15) ? null : reader.GetString(15);
-                    var avatarUrl = avatarRaw;
-                    if (!string.IsNullOrWhiteSpace(avatarRaw) &&
-                        !avatarRaw.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
-                        !avatarRaw.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                    {
-                        avatarUrl = BuildUserAvatarPublicUrl(avatarRaw);
-                    }
+                    var threadType = reader.IsDBNull(1) ? "bot" : reader.GetString(1);
+                    var threadBotId = reader.IsDBNull(3) ? null : reader.GetString(3);
+                    var avatarRaw = reader.IsDBNull(16) ? null : reader.GetString(16);
+                    var avatarUrl = ResolveThreadAvatarPublicUrl(threadType, threadBotId, avatarRaw);
 
                     var lastFromSelf = false;
                     if (!reader.IsDBNull(8) &&
@@ -136,24 +150,13 @@ public class ChatController : ControllerBase
                     {
                         var sid = reader.IsDBNull(9) ? "" : reader.GetString(9).Trim();
                         lastFromSelf = !string.IsNullOrEmpty(sid) &&
-                            string.Equals(sid, ownerLogin, StringComparison.OrdinalIgnoreCase);
+                            (string.Equals(sid, ownerLogin, StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(sid, normalizedLogin, StringComparison.OrdinalIgnoreCase));
                     }
 
-                    var threadType = reader.IsDBNull(1) ? "bot" : reader.GetString(1);
                     var peerLogin = reader.IsDBNull(11) ? null : reader.GetString(11);
                     var lastMessageId = reader.IsDBNull(10) ? 0 : Convert.ToInt32(reader.GetValue(10));
                     var lastMessageIsRead = false;
-                    if (lastFromSelf &&
-                        threadType.Equals("user", StringComparison.OrdinalIgnoreCase) &&
-                        lastMessageId > 0 &&
-                        !string.IsNullOrWhiteSpace(peerLogin))
-                    {
-                        var recipientThreadId = await GetDirectThreadIdAsync(connection, peerLogin.Trim(), ownerLogin);
-                        if (recipientThreadId > 0)
-                        {
-                            lastMessageIsRead = await IsMirroredMessageReadByOwnerAsync(connection, lastMessageId, recipientThreadId, peerLogin.Trim());
-                        }
-                    }
 
                     var rawLastText = reader.IsDBNull(5) ? null : _cipher.UnprotectFieldNullable(reader.GetString(5));
                     var rawLastMeta = reader.IsDBNull(7) ? null : _cipher.UnprotectFieldNullable(reader.GetString(7));
@@ -163,7 +166,7 @@ public class ChatController : ControllerBase
                         Id: reader.GetInt32(0),
                         Type: threadType,
                         Title: reader.IsDBNull(2) ? "" : reader.GetString(2),
-                        BotId: reader.IsDBNull(3) ? null : reader.GetString(3),
+                        BotId: threadBotId,
                         CreatedAtUtc: reader.GetDateTime(4),
                         LastMessageText: lastPreview,
                         LastMessageAtUtc: reader.IsDBNull(6) ? null : reader.GetDateTime(6),
@@ -172,9 +175,26 @@ public class ChatController : ControllerBase
                         UnreadCount: reader.IsDBNull(12) ? 0 : Convert.ToInt32(reader.GetValue(12)),
                         IsTechAdmin: !reader.IsDBNull(13) && Convert.ToInt32(reader.GetValue(13)) == 1,
                         IsOfficialBot: !reader.IsDBNull(14) && Convert.ToInt32(reader.GetValue(14)) == 1,
+                        IsOnline: !reader.IsDBNull(15) && Convert.ToInt32(reader.GetValue(15)) == 1,
                         AvatarUrl: avatarUrl
                     ));
+
+                    if (lastFromSelf &&
+                        threadType.Equals("user", StringComparison.OrdinalIgnoreCase) &&
+                        lastMessageId > 0 &&
+                        !string.IsNullOrWhiteSpace(peerLogin))
+                    {
+                        pendingReadChecks.Add((list.Count - 1, peerLogin.Trim(), lastMessageId));
+                    }
                 }
+            }
+
+            foreach (var check in pendingReadChecks)
+            {
+                var recipientThreadId = await GetDirectThreadIdAsync(connection, check.PeerLogin, ownerLogin);
+                if (recipientThreadId <= 0) continue;
+                var isRead = await IsMirroredMessageReadByOwnerAsync(connection, check.LastMessageId, recipientThreadId, check.PeerLogin);
+                list[check.Index] = list[check.Index] with { LastMessageIsRead = isRead };
             }
 
             return Ok(new ThreadsResponse(true, "OK", list));
@@ -207,6 +227,7 @@ public class ChatController : ControllerBase
             await EnsureAppUserProfileTableAsync(connection);
 
             var ownerLogin = await ResolveOwnerLoginAsync(connection, login.Trim());
+            await TouchUserPresenceAsync(connection, ownerLogin);
             var query = (q ?? string.Empty).Trim();
             var queryLike = $"%{query}%";
 
@@ -221,9 +242,14 @@ public class ChatController : ControllerBase
                     ))) AS FullName,
                     COALESCE(TRY_CONVERT(nvarchar(200), C.[Должность]), '') AS Position,
                     ISNULL(PM.[CanTechAdmin], 0) AS IsTechAdmin,
+                    CASE
+                        WHEN PR.[LastSeenAt] >= DATEADD(MINUTE, -2, GETUTCDATE()) THEN 1
+                        ELSE 0
+                    END AS IsOnline,
                     UP.[AvatarFileName] AS AvatarFileName
                 FROM [Lexema_Кадры_ЛичнаяКарточка] C
                 LEFT JOIN [App_UserPermissions] PM ON PM.[Login] = C.[Логин]
+                LEFT JOIN [App_UserPresence] PR ON PR.[Login] = C.[Логин]
                 LEFT JOIN [App_UserProfile] UP ON UP.[Login] = C.[Логин]
                 WHERE ISNULL(C.[ЗарегВПриложении], 0) = 1
                   AND TRY_CONVERT(datetime2, C.[ДатаУвольнения]) IS NULL
@@ -253,13 +279,14 @@ public class ChatController : ControllerBase
                 var loginValue = reader.IsDBNull(0) ? "" : reader.GetString(0).Trim();
                 if (string.IsNullOrWhiteSpace(loginValue)) continue;
 
-                var avatarFileName = reader.IsDBNull(5) ? null : reader.GetString(5);
+                var avatarFileName = reader.IsDBNull(6) ? null : reader.GetString(6);
                 list.Add(new ColleagueSearchItem(
                     Login: loginValue,
                     EmployeeId: reader.IsDBNull(1) ? "" : reader.GetString(1),
                     FullName: reader.IsDBNull(2) ? loginValue : reader.GetString(2),
                     Position: reader.IsDBNull(3) ? "" : reader.GetString(3),
                     IsTechAdmin: !reader.IsDBNull(4) && Convert.ToInt32(reader.GetValue(4)) == 1,
+                    IsOnline: !reader.IsDBNull(5) && Convert.ToInt32(reader.GetValue(5)) == 1,
                     AvatarUrl: BuildUserAvatarPublicUrl(avatarFileName)
                 ));
             }
@@ -291,7 +318,7 @@ public class ChatController : ControllerBase
             await EnsureAppUserProfileTableAsync(connection);
 
             var ownerLogin = await ResolveOwnerLoginAsync(connection, request.Login.Trim());
-            var peerLogin = request.ColleagueLogin.Trim();
+            var peerLogin = await ResolveOwnerLoginAsync(connection, request.ColleagueLogin.Trim());
             if (peerLogin.Equals(ownerLogin, StringComparison.OrdinalIgnoreCase))
                 return Ok(new OpenDirectThreadResponse(false, "Нельзя открыть чат с самим собой", null));
 
@@ -304,7 +331,7 @@ public class ChatController : ControllerBase
                         CASE WHEN COALESCE(TRY_CONVERT(nvarchar(200), C.[Имя]), '') = '' THEN '' ELSE ' ' + COALESCE(TRY_CONVERT(nvarchar(200), C.[Имя]), '') END
                     ))) AS DisplayName
                 FROM [Lexema_Кадры_ЛичнаяКарточка] C
-                WHERE C.[Логин] = @PeerLogin
+                WHERE (C.[Логин] = @PeerLogin OR TRY_CONVERT(nvarchar(50), C.[ТабельныйНомер]) = @PeerLogin)
                   AND ISNULL(C.[ЗарегВПриложении], 0) = 1
                   AND TRY_CONVERT(datetime2, C.[ДатаУвольнения]) IS NULL;";
 
@@ -387,6 +414,7 @@ public class ChatController : ControllerBase
 
             var normalizedLogin = login.Trim();
             var ownerLogin = await ResolveOwnerLoginAsync(connection, normalizedLogin);
+            await TouchUserPresenceAsync(connection, ownerLogin);
 
             // Authorization + thread metadata
             const string ownSql = @"
@@ -407,7 +435,7 @@ public class ChatController : ControllerBase
             }
 
             const string sql = @"
-                SELECT TOP (@Take) [Id], [SenderType], [SenderId], [Text], [CreatedAt], [MetaJson]
+                SELECT TOP (@Take) [Id], [SenderType], [SenderId], [Text], [CreatedAt], [MetaJson], ISNULL([IsEdited], 0) AS IsEdited
                 FROM [App_Messages]
                 WHERE [ThreadId] = @ThreadId
                   AND (@BeforeId IS NULL OR [Id] < @BeforeId)
@@ -432,7 +460,8 @@ public class ChatController : ControllerBase
                         CreatedAtUtc: reader.GetDateTime(4),
                         MetaJson: reader.IsDBNull(5) ? null : _cipher.UnprotectFieldNullable(reader.GetString(5)),
                         SenderIsTechAdmin: false,
-                        IsRead: false
+                        IsRead: false,
+                        IsEdited: !reader.IsDBNull(6) && Convert.ToInt32(reader.GetValue(6)) == 1
                     ));
                 }
             }
@@ -452,6 +481,14 @@ public class ChatController : ControllerBase
                 items[i] = items[i] with { SenderIsTechAdmin = isAdmin, SenderName = senderDisplayName };
             }
 
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (string.IsNullOrWhiteSpace(items[i].MetaJson)) continue;
+                var remappedMeta = await RemapReplyMetaForThreadAsync(connection, threadId, items[i].MetaJson);
+                if (!string.Equals(remappedMeta, items[i].MetaJson, StringComparison.Ordinal))
+                    items[i] = items[i] with { MetaJson = remappedMeta };
+            }
+
             // Accurate read state for outgoing messages in direct chats:
             // message is read when counterpart's thread read pointer reached mirrored message id.
             if (threadType.Equals("user", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(peerLogin))
@@ -463,7 +500,9 @@ public class ChatController : ControllerBase
                     {
                         var m = items[i];
                         if (!m.SenderType.Equals("user", StringComparison.OrdinalIgnoreCase)) continue;
-                        if (!string.Equals(m.SenderId?.Trim(), normalizedLogin, StringComparison.OrdinalIgnoreCase)) continue;
+                        var sid = m.SenderId?.Trim();
+                        if (!string.Equals(sid, normalizedLogin, StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(sid, ownerLogin, StringComparison.OrdinalIgnoreCase)) continue;
                         var read = await IsMirroredMessageReadByOwnerAsync(connection, m.Id, recipientThreadId, peerLogin.Trim());
                         items[i] = m with { IsRead = read };
                     }
@@ -513,6 +552,7 @@ public class ChatController : ControllerBase
 
             var normalizedLogin = request.Login.Trim();
             var ownerLogin = await ResolveOwnerLoginAsync(connection, normalizedLogin);
+            await TouchUserPresenceAsync(connection, ownerLogin);
 
             // Authorization + thread info
             const string ownSql = @"
@@ -563,6 +603,14 @@ public class ChatController : ControllerBase
                 !string.IsNullOrWhiteSpace(threadBotId))
             {
                 await HandleTechBotCommandsAsync(connection, threadId, threadBotId, text, normalizedLogin);
+                if (await IsTechAdminAsync(connection, normalizedLogin) &&
+                    threadBotId.Equals("StekloSecurity", StringComparison.OrdinalIgnoreCase) &&
+                    TryParseChatMediaMeta(request.MetaJson, out var mediaUrl, out var mediaKind) &&
+                    !string.IsNullOrWhiteSpace(mediaUrl) &&
+                    string.Equals(mediaKind, "apk", StringComparison.OrdinalIgnoreCase))
+                {
+                    await BroadcastBotMessageToAllOwnersAsync(connection, threadBotId, text, request.MetaJson);
+                }
             }
 
             // Mirror direct user-to-user messages into recipient's personal thread,
@@ -575,11 +623,13 @@ public class ChatController : ControllerBase
                 if (!recipientOwnerLogin.Equals(senderOwnerLogin, StringComparison.OrdinalIgnoreCase))
                 {
                     var reciprocalThreadId = await EnsureDirectUserThreadAsync(connection, recipientOwnerLogin, senderOwnerLogin);
+                    var recipientMetaJson = await RemapReplyMetaForRecipientAsync(connection, request.MetaJson);
+                    var recipientMetaForDb = _cipher.ProtectFieldNullable(recipientMetaJson);
                     await using var mirrorIns = new SqlCommand(insSql, connection);
                     mirrorIns.Parameters.AddWithValue("@ThreadId", reciprocalThreadId);
                     mirrorIns.Parameters.AddWithValue("@SenderId", normalizedLogin);
                     mirrorIns.Parameters.AddWithValue("@Text", textForDb);
-                    mirrorIns.Parameters.AddWithValue("@MetaJson", (object?)metaForDb ?? DBNull.Value);
+                    mirrorIns.Parameters.AddWithValue("@MetaJson", (object?)recipientMetaForDb ?? DBNull.Value);
                     var mirroredIdObj = await mirrorIns.ExecuteScalarAsync();
                     var mirroredId = Convert.ToInt32(mirroredIdObj);
                     await UpsertMessageMirrorAsync(connection, ownerMessageId: newId, recipientMessageId: mirroredId);
@@ -611,6 +661,13 @@ public class ChatController : ControllerBase
                 }
             }
 
+            await PublishChatUpdatedAsync(ownerLogin);
+            if (threadType.Equals("user", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(threadPeerLogin))
+            {
+                await PublishChatUpdatedAsync(threadPeerLogin.Trim());
+            }
+
             var msg = new MessageItem(
                 Id: newId,
                 SenderType: "user",
@@ -620,7 +677,8 @@ public class ChatController : ControllerBase
                 CreatedAtUtc: DateTime.UtcNow,
                 MetaJson: request.MetaJson,
                 SenderIsTechAdmin: await IsTechAdminAsync(connection, normalizedLogin),
-                IsRead: false
+                IsRead: false,
+                IsEdited: false
             );
             return Ok(new SendMessageResponse(true, "OK", msg));
         }
@@ -655,14 +713,21 @@ public class ChatController : ControllerBase
 
             var ownerLogin = await ResolveOwnerLoginAsync(connection, login.Trim());
 
-            const string ownSql = @"SELECT TOP 1 1 FROM [App_Threads] WHERE [Id] = @Id AND [OwnerLogin] = @Login;";
+            const string ownSql = @"
+                SELECT TOP 1 ISNULL([Type], 'bot') AS ThreadType, [BotId]
+                FROM [App_Threads]
+                WHERE [Id] = @Id AND [OwnerLogin] = @Login;";
+            string ownThreadType = "bot";
+            string? ownBotId = null;
             await using (var own = new SqlCommand(ownSql, connection))
             {
                 own.Parameters.AddWithValue("@Id", threadId);
                 own.Parameters.AddWithValue("@Login", ownerLogin);
-                var o = await own.ExecuteScalarAsync();
-                if (o == null || o == DBNull.Value)
+                await using var ownReader = await own.ExecuteReaderAsync();
+                if (!await ownReader.ReadAsync())
                     return Ok(new ChatMediaUploadResponse(false, "Диалог не найден", null, null, null));
+                ownThreadType = ownReader.IsDBNull(0) ? "bot" : ownReader.GetString(0);
+                ownBotId = ownReader.IsDBNull(1) ? null : ownReader.GetString(1);
             }
 
             var ext = Path.GetExtension(file.FileName)?.ToLowerInvariant() ?? "";
@@ -673,13 +738,21 @@ public class ChatController : ControllerBase
                           ext is ".mp4" or ".mov" or ".webm" or ".m4v" or ".3gp";
             var isImage = ct.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ||
                           ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif";
+            var isApk = ct.Contains("android.package-archive", StringComparison.OrdinalIgnoreCase) || ext == ".apk";
+            var canUploadApk = isApk &&
+                               ownThreadType.Equals("bot", StringComparison.OrdinalIgnoreCase) &&
+                               !string.IsNullOrWhiteSpace(ownBotId) &&
+                               ownBotId.Equals("StekloSecurity", StringComparison.OrdinalIgnoreCase) &&
+                               await IsTechAdminAsync(connection, ownerLogin);
 
-            if (!isVideo && !isImage)
-                return Ok(new ChatMediaUploadResponse(false, "Допустимы фото или видео (jpg, png, webp, gif, mp4…)", null, null, null));
+            if (!isVideo && !isImage && !canUploadApk)
+                return Ok(new ChatMediaUploadResponse(false, "Допустимы фото/видео, а APK — только техадмину в чате StekloSecurity", null, null, null));
 
-            var kind = isVideo ? "video" : "image";
+            var kind = canUploadApk ? "apk" : (isVideo ? "video" : "image");
             var url = await SaveChatMediaFileAsync(file);
-            var mime = string.IsNullOrWhiteSpace(file.ContentType) ? (isVideo ? "video/mp4" : "image/jpeg") : file.ContentType;
+            var mime = string.IsNullOrWhiteSpace(file.ContentType)
+                ? (canUploadApk ? "application/vnd.android.package-archive" : (isVideo ? "video/mp4" : "image/jpeg"))
+                : file.ContentType;
             return Ok(new ChatMediaUploadResponse(true, "OK", url, mime, kind));
         }
         catch (Exception ex)
@@ -745,6 +818,122 @@ public class ChatController : ControllerBase
         {
             Console.WriteLine(ex.ToString());
             return Ok(new DeleteMessageResponse(false, $"Ошибка: {ex.GetType().Name}: {ex.Message}"));
+        }
+    }
+
+    [HttpPut("threads/{threadId:int}/messages/{messageId:int}")]
+    public async Task<ActionResult<EditMessageResponse>> EditMessage(int threadId, int messageId, [FromBody] EditMessageRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Login))
+            return BadRequest(new EditMessageResponse(false, "Укажите логин", null));
+        if (threadId <= 0 || messageId <= 0)
+            return BadRequest(new EditMessageResponse(false, "Некорректные параметры", null));
+
+        var text = (request.Text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return Ok(new EditMessageResponse(false, "Текст не может быть пустым", null));
+
+        var connectionString = _configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrEmpty(connectionString))
+            return StatusCode(500, new EditMessageResponse(false, "Не настроено подключение к БД", null));
+
+        try
+        {
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync();
+            await EnsureChatTablesAsync(connection);
+            await EnsureThreadReadsTableAsync(connection);
+            await MaybeEncryptLegacyChatMessagesAsync(connection);
+
+            var normalizedLogin = request.Login.Trim();
+            var ownerLogin = await ResolveOwnerLoginAsync(connection, normalizedLogin);
+
+            const string ownSql = @"
+                SELECT TOP 1 ISNULL([Type], 'bot') AS ThreadType, [PeerLogin]
+                FROM [App_Threads]
+                WHERE [Id] = @Id AND [OwnerLogin] = @Login;";
+            string threadType;
+            string? threadPeerLogin;
+            await using (var own = new SqlCommand(ownSql, connection))
+            {
+                own.Parameters.AddWithValue("@Id", threadId);
+                own.Parameters.AddWithValue("@Login", ownerLogin);
+                await using var ownReader = await own.ExecuteReaderAsync();
+                if (!await ownReader.ReadAsync())
+                    return Ok(new EditMessageResponse(false, "Диалог не найден", null));
+                threadType = ownReader.IsDBNull(0) ? "bot" : ownReader.GetString(0);
+                threadPeerLogin = ownReader.IsDBNull(1) ? null : ownReader.GetString(1);
+            }
+
+            const string getSql = @"
+                SELECT TOP 1 [SenderType], [SenderId], [CreatedAt], [MetaJson]
+                FROM [App_Messages]
+                WHERE [Id] = @Id AND [ThreadId] = @ThreadId;";
+            DateTime createdAtUtc;
+            string? metaJson;
+            await using (var get = new SqlCommand(getSql, connection))
+            {
+                get.Parameters.AddWithValue("@Id", messageId);
+                get.Parameters.AddWithValue("@ThreadId", threadId);
+                await using var reader = await get.ExecuteReaderAsync();
+                if (!await reader.ReadAsync())
+                    return Ok(new EditMessageResponse(false, "Сообщение не найдено", null));
+                var senderType = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                var senderId = reader.IsDBNull(1) ? "" : reader.GetString(1).Trim();
+                if (!senderType.Equals("user", StringComparison.OrdinalIgnoreCase) ||
+                    !senderId.Equals(normalizedLogin, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Ok(new EditMessageResponse(false, "Можно редактировать только свои сообщения", null));
+                }
+                createdAtUtc = reader.GetDateTime(2);
+                metaJson = reader.IsDBNull(3) ? null : _cipher.UnprotectFieldNullable(reader.GetString(3));
+            }
+
+            const string updSql = @"
+                UPDATE [App_Messages]
+                SET [Text] = @Text, [IsEdited] = 1
+                WHERE [Id] = @Id AND [ThreadId] = @ThreadId;";
+            var encText = _cipher.ProtectField(text);
+            await using (var upd = new SqlCommand(updSql, connection))
+            {
+                upd.Parameters.AddWithValue("@Text", encText);
+                upd.Parameters.AddWithValue("@Id", messageId);
+                upd.Parameters.AddWithValue("@ThreadId", threadId);
+                await upd.ExecuteNonQueryAsync();
+            }
+
+            var mirroredMessageId = await GetMirroredMessageIdAsync(connection, messageId, normalizedLogin);
+            if (mirroredMessageId > 0)
+            {
+                const string updMirrorSql = @"UPDATE [App_Messages] SET [Text] = @Text, [IsEdited] = 1 WHERE [Id] = @Id;";
+                await using var updMirror = new SqlCommand(updMirrorSql, connection);
+                updMirror.Parameters.AddWithValue("@Text", encText);
+                updMirror.Parameters.AddWithValue("@Id", mirroredMessageId);
+                await updMirror.ExecuteNonQueryAsync();
+            }
+
+            await PublishChatUpdatedAsync(ownerLogin);
+            if (threadType.Equals("user", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(threadPeerLogin))
+                await PublishChatUpdatedAsync(threadPeerLogin.Trim());
+
+            var item = new MessageItem(
+                Id: messageId,
+                SenderType: "user",
+                SenderId: normalizedLogin,
+                SenderName: await ResolveDisplayNameByLoginAsync(connection, normalizedLogin),
+                Text: text,
+                CreatedAtUtc: createdAtUtc,
+                MetaJson: metaJson,
+                SenderIsTechAdmin: await IsTechAdminAsync(connection, normalizedLogin),
+                IsRead: false,
+                IsEdited: true
+            );
+            return Ok(new EditMessageResponse(true, "OK", item));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.ToString());
+            return Ok(new EditMessageResponse(false, $"Ошибка: {ex.GetType().Name}: {ex.Message}", null));
         }
     }
 
@@ -979,16 +1168,8 @@ public class ChatController : ControllerBase
         if (string.IsNullOrWhiteSpace(loginOrEmployeeId)) return "";
         var key = loginOrEmployeeId.Trim();
 
-        // If threads already exist for this key, use it as-is.
-        const string hasThreadsSql = @"SELECT TOP 1 1 FROM [App_Threads] WHERE [OwnerLogin] = @Login;";
-        await using (var has = new SqlCommand(hasThreadsSql, connection))
-        {
-            has.Parameters.AddWithValue("@Login", key);
-            var o = await has.ExecuteScalarAsync();
-            if (o != null && o != DBNull.Value) return key;
-        }
-
         // If key looks like employeeId (digits), try to resolve to stored card login from Lexema.
+        // Use resolved login as canonical owner key for both mobile and web clients.
         if (key.All(char.IsDigit))
         {
             try
@@ -1005,7 +1186,7 @@ public class ChatController : ControllerBase
             }
             catch
             {
-                // Lexema может быть вне DefaultConnection или без прав. В этом случае работаем по key как есть.
+                // Lexema may be unavailable; keep using incoming key.
             }
         }
 
@@ -1088,6 +1269,213 @@ public class ChatController : ControllerBase
         return (o == null || o == DBNull.Value) ? 0 : Convert.ToInt32(o);
     }
 
+    private sealed record DirectThreadState(
+        int Id,
+        string? PeerLogin,
+        string? PeerEmployeeId,
+        string? Title,
+        int LastMessageId
+    );
+
+    private async Task NormalizeDirectThreadsAsync(SqlConnection connection, string ownerLogin)
+    {
+        const string sql = @"
+            SELECT
+                T.[Id],
+                T.[PeerLogin],
+                T.[PeerEmployeeId],
+                T.[Title],
+                ISNULL(M.[LastMessageId], 0) AS LastMessageId
+            FROM [App_Threads] T
+            OUTER APPLY (
+                SELECT TOP 1 MM.[Id] AS LastMessageId
+                FROM [App_Messages] MM
+                WHERE MM.[ThreadId] = T.[Id]
+                ORDER BY MM.[Id] DESC
+            ) M
+            WHERE T.[OwnerLogin] = @OwnerLogin
+              AND ISNULL(T.[Type], 'bot') = 'user';";
+
+        var rows = new List<DirectThreadState>();
+        await using (var cmd = new SqlCommand(sql, connection))
+        {
+            cmd.Parameters.AddWithValue("@OwnerLogin", ownerLogin);
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                rows.Add(new DirectThreadState(
+                    Id: reader.GetInt32(0),
+                    PeerLogin: reader.IsDBNull(1) ? null : reader.GetString(1),
+                    PeerEmployeeId: reader.IsDBNull(2) ? null : reader.GetString(2),
+                    Title: reader.IsDBNull(3) ? null : reader.GetString(3),
+                    LastMessageId: reader.IsDBNull(4) ? 0 : Convert.ToInt32(reader.GetValue(4))
+                ));
+            }
+        }
+
+        if (rows.Count == 0) return;
+
+        var loginResolveCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var employeeIdByLogin = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var displayNameByLogin = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var canonicalByThreadId = new Dictionary<int, string>();
+
+        foreach (var row in rows)
+        {
+            var candidates = new[] { row.PeerLogin, row.PeerEmployeeId };
+            string canonicalPeerLogin = "";
+            foreach (var candidateRaw in candidates)
+            {
+                var candidate = candidateRaw?.Trim();
+                if (string.IsNullOrWhiteSpace(candidate)) continue;
+                if (!loginResolveCache.TryGetValue(candidate, out var resolved))
+                {
+                    resolved = await ResolveOwnerLoginAsync(connection, candidate);
+                    loginResolveCache[candidate] = resolved;
+                }
+                if (!string.IsNullOrWhiteSpace(resolved))
+                {
+                    canonicalPeerLogin = resolved.Trim();
+                    break;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(canonicalPeerLogin))
+                continue;
+
+            canonicalByThreadId[row.Id] = canonicalPeerLogin;
+
+            if (!displayNameByLogin.ContainsKey(canonicalPeerLogin))
+                displayNameByLogin[canonicalPeerLogin] = await ResolveDisplayNameByLoginAsync(connection, canonicalPeerLogin);
+            if (!employeeIdByLogin.ContainsKey(canonicalPeerLogin))
+                employeeIdByLogin[canonicalPeerLogin] = await ResolveEmployeeIdByLoginAsync(connection, canonicalPeerLogin);
+
+            var canonicalEmployeeId = employeeIdByLogin[canonicalPeerLogin];
+            var canonicalDisplayName = displayNameByLogin[canonicalPeerLogin];
+            var currentPeerLogin = row.PeerLogin?.Trim() ?? "";
+            var currentPeerEmployeeId = row.PeerEmployeeId?.Trim() ?? "";
+            var currentTitle = row.Title?.Trim() ?? "";
+            var shouldUpdate =
+                !currentPeerLogin.Equals(canonicalPeerLogin, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(currentPeerEmployeeId, canonicalEmployeeId, StringComparison.OrdinalIgnoreCase) ||
+                string.IsNullOrWhiteSpace(currentTitle) ||
+                currentTitle.All(char.IsDigit);
+            if (!shouldUpdate) continue;
+
+            const string updateSql = @"
+                UPDATE [App_Threads]
+                SET [PeerLogin] = @PeerLogin,
+                    [PeerEmployeeId] = @PeerEmployeeId,
+                    [Title] = @Title
+                WHERE [Id] = @Id;";
+            await using var upd = new SqlCommand(updateSql, connection);
+            upd.Parameters.AddWithValue("@Id", row.Id);
+            upd.Parameters.AddWithValue("@PeerLogin", canonicalPeerLogin);
+            upd.Parameters.AddWithValue("@PeerEmployeeId", string.IsNullOrWhiteSpace(canonicalEmployeeId) ? (object)DBNull.Value : canonicalEmployeeId);
+            upd.Parameters.AddWithValue("@Title", string.IsNullOrWhiteSpace(canonicalDisplayName) ? canonicalPeerLogin : canonicalDisplayName);
+            await upd.ExecuteNonQueryAsync();
+        }
+
+        var duplicateGroups = rows
+            .Where(r => canonicalByThreadId.ContainsKey(r.Id))
+            .GroupBy(r => canonicalByThreadId[r.Id], StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1);
+
+        foreach (var group in duplicateGroups)
+        {
+            var keeper = group
+                .OrderByDescending(x => x.LastMessageId)
+                .ThenByDescending(x => x.Id)
+                .First();
+
+            foreach (var duplicate in group.Where(x => x.Id != keeper.Id))
+            {
+                await MergeThreadReadsAsync(connection, keeper.Id, duplicate.Id);
+
+                const string moveMessagesSql = @"UPDATE [App_Messages] SET [ThreadId] = @KeepId WHERE [ThreadId] = @DuplicateId;";
+                await using (var moveMessages = new SqlCommand(moveMessagesSql, connection))
+                {
+                    moveMessages.Parameters.AddWithValue("@KeepId", keeper.Id);
+                    moveMessages.Parameters.AddWithValue("@DuplicateId", duplicate.Id);
+                    await moveMessages.ExecuteNonQueryAsync();
+                }
+
+                const string deleteReadsSql = @"DELETE FROM [App_ThreadReads] WHERE [ThreadId] = @DuplicateId;";
+                await using (var deleteReads = new SqlCommand(deleteReadsSql, connection))
+                {
+                    deleteReads.Parameters.AddWithValue("@DuplicateId", duplicate.Id);
+                    await deleteReads.ExecuteNonQueryAsync();
+                }
+
+                const string deleteThreadSql = @"DELETE FROM [App_Threads] WHERE [Id] = @DuplicateId;";
+                await using var deleteThread = new SqlCommand(deleteThreadSql, connection);
+                deleteThread.Parameters.AddWithValue("@DuplicateId", duplicate.Id);
+                await deleteThread.ExecuteNonQueryAsync();
+            }
+        }
+    }
+
+    private static async Task MergeThreadReadsAsync(SqlConnection connection, int keeperThreadId, int duplicateThreadId)
+    {
+        const string readsSql = @"
+            SELECT [Login], ISNULL([LastReadMessageId], 0)
+            FROM [App_ThreadReads]
+            WHERE [ThreadId] = @DuplicateId;";
+        var reads = new List<(string Login, int LastReadMessageId)>();
+        await using (var readsCmd = new SqlCommand(readsSql, connection))
+        {
+            readsCmd.Parameters.AddWithValue("@DuplicateId", duplicateThreadId);
+            await using var reader = await readsCmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var login = reader.IsDBNull(0) ? "" : reader.GetString(0).Trim();
+                if (string.IsNullOrWhiteSpace(login)) continue;
+                reads.Add((login, reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1))));
+            }
+        }
+
+        foreach (var read in reads)
+        {
+            const string mergeSql = @"
+                IF EXISTS (SELECT 1 FROM [App_ThreadReads] WHERE [ThreadId] = @KeepId AND [Login] = @Login)
+                BEGIN
+                    UPDATE [App_ThreadReads]
+                    SET [LastReadMessageId] = CASE
+                        WHEN ISNULL([LastReadMessageId], 0) > @LastRead THEN ISNULL([LastReadMessageId], 0)
+                        ELSE @LastRead
+                    END,
+                    [UpdatedAt] = GETUTCDATE()
+                    WHERE [ThreadId] = @KeepId AND [Login] = @Login
+                END
+                ELSE
+                BEGIN
+                    INSERT INTO [App_ThreadReads] ([ThreadId], [Login], [LastReadMessageId], [UpdatedAt])
+                    VALUES (@KeepId, @Login, @LastRead, GETUTCDATE())
+                END";
+            await using var merge = new SqlCommand(mergeSql, connection);
+            merge.Parameters.AddWithValue("@KeepId", keeperThreadId);
+            merge.Parameters.AddWithValue("@Login", read.Login);
+            merge.Parameters.AddWithValue("@LastRead", read.LastReadMessageId);
+            await merge.ExecuteNonQueryAsync();
+        }
+    }
+
+    private static async Task<string> ResolveEmployeeIdByLoginAsync(SqlConnection connection, string login)
+    {
+        var key = login?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(key)) return "";
+
+        const string sql = @"
+            SELECT TOP 1 COALESCE(TRY_CONVERT(nvarchar(50), [ТабельныйНомер]), '')
+            FROM [Lexema_Кадры_ЛичнаяКарточка]
+            WHERE [Логин] = @Login;";
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@Login", key);
+        var o = await cmd.ExecuteScalarAsync();
+        var employeeId = (o == null || o == DBNull.Value) ? "" : Convert.ToString(o)?.Trim();
+        return employeeId ?? "";
+    }
+
     private static async Task UpsertMessageMirrorAsync(SqlConnection connection, int ownerMessageId, int recipientMessageId)
     {
         const string sql = @"
@@ -1125,8 +1513,141 @@ public class ChatController : ControllerBase
         return o != null && o != DBNull.Value && Convert.ToInt32(o) == 1;
     }
 
+    private static async Task<int> GetMirroredMessageIdAsync(SqlConnection connection, int messageId, string senderId)
+    {
+        const string sql = @"
+            SELECT TOP 1 X.[Id]
+            FROM [App_MessageMirror] M
+            CROSS APPLY (
+                SELECT CASE
+                    WHEN M.[OwnerMessageId] = @MessageId THEN M.[RecipientMessageId]
+                    WHEN M.[RecipientMessageId] = @MessageId THEN M.[OwnerMessageId]
+                    ELSE 0
+                END AS [Id]
+            ) X
+            JOIN [App_Messages] MM ON MM.[Id] = X.[Id]
+            WHERE (M.[OwnerMessageId] = @MessageId OR M.[RecipientMessageId] = @MessageId)
+              AND X.[Id] > 0
+              AND ISNULL(MM.[SenderType], '') = 'user'
+              AND ISNULL(MM.[SenderId], '') = @SenderId;";
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@MessageId", messageId);
+        cmd.Parameters.AddWithValue("@SenderId", senderId ?? "");
+        var o = await cmd.ExecuteScalarAsync();
+        return o == null || o == DBNull.Value ? 0 : Convert.ToInt32(o);
+    }
+
+    private static async Task<int> GetMirroredCounterpartMessageIdAsync(SqlConnection connection, int messageId)
+    {
+        const string sql = @"
+            SELECT TOP 1
+                CASE
+                    WHEN [OwnerMessageId] = @MessageId THEN [RecipientMessageId]
+                    WHEN [RecipientMessageId] = @MessageId THEN [OwnerMessageId]
+                    ELSE 0
+                END
+            FROM [App_MessageMirror]
+            WHERE [OwnerMessageId] = @MessageId OR [RecipientMessageId] = @MessageId;";
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@MessageId", messageId);
+        var o = await cmd.ExecuteScalarAsync();
+        return o == null || o == DBNull.Value ? 0 : Convert.ToInt32(o);
+    }
+
+    private static async Task<string?> RemapReplyMetaForRecipientAsync(SqlConnection connection, string? metaJson)
+    {
+        if (string.IsNullOrWhiteSpace(metaJson)) return metaJson;
+        try
+        {
+            var node = JsonNode.Parse(metaJson) as JsonObject;
+            if (node == null) return metaJson;
+            var replyToId = node["replyToId"]?.GetValue<int?>() ?? 0;
+            if (replyToId <= 0) return metaJson;
+            var mirroredReplyToId = await GetMirroredCounterpartMessageIdAsync(connection, replyToId);
+            if (mirroredReplyToId <= 0) return metaJson;
+            node["replyToId"] = mirroredReplyToId;
+            return node.ToJsonString();
+        }
+        catch
+        {
+            return metaJson;
+        }
+    }
+
+    private async Task<string?> RemapReplyMetaForThreadAsync(SqlConnection connection, int threadId, string? metaJson)
+    {
+        if (string.IsNullOrWhiteSpace(metaJson)) return metaJson;
+        try
+        {
+            var node = JsonNode.Parse(metaJson) as JsonObject;
+            if (node == null) return metaJson;
+            var replyToId = node["replyToId"]?.GetValue<int?>() ?? 0;
+            if (replyToId <= 0) return metaJson;
+
+            var effectiveReplyId = replyToId;
+            if (!await MessageBelongsToThreadAsync(connection, replyToId, threadId))
+            {
+                var mirrored = await GetMirroredCounterpartMessageIdAsync(connection, replyToId);
+                if (mirrored > 0 && await MessageBelongsToThreadAsync(connection, mirrored, threadId))
+                    effectiveReplyId = mirrored;
+            }
+
+            if (effectiveReplyId <= 0 || !await MessageBelongsToThreadAsync(connection, effectiveReplyId, threadId))
+                return metaJson;
+
+            node["replyToId"] = effectiveReplyId;
+            var (replyText, replySender) = await BuildReplySnapshotAsync(connection, effectiveReplyId);
+            if (!string.IsNullOrWhiteSpace(replyText)) node["replyText"] = replyText;
+            if (!string.IsNullOrWhiteSpace(replySender)) node["replySender"] = replySender;
+            return node.ToJsonString();
+        }
+        catch
+        {
+            return metaJson;
+        }
+    }
+
+    private static async Task<bool> MessageBelongsToThreadAsync(SqlConnection connection, int messageId, int threadId)
+    {
+        const string sql = @"SELECT TOP 1 1 FROM [App_Messages] WHERE [Id] = @Id AND [ThreadId] = @ThreadId;";
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@Id", messageId);
+        cmd.Parameters.AddWithValue("@ThreadId", threadId);
+        var o = await cmd.ExecuteScalarAsync();
+        return o != null && o != DBNull.Value;
+    }
+
+    private async Task<(string ReplyText, string ReplySender)> BuildReplySnapshotAsync(SqlConnection connection, int messageId)
+    {
+        const string sql = @"
+            SELECT TOP 1 [SenderType], [SenderId], [Text], [MetaJson]
+            FROM [App_Messages]
+            WHERE [Id] = @Id;";
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@Id", messageId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        if (!await r.ReadAsync()) return ("", "");
+
+        var senderType = r.IsDBNull(0) ? "user" : r.GetString(0);
+        var senderId = r.IsDBNull(1) ? "" : r.GetString(1).Trim();
+        var rawText = r.IsDBNull(2) ? null : _cipher.UnprotectFieldNullable(r.GetString(2));
+        var rawMeta = r.IsDBNull(3) ? null : _cipher.UnprotectFieldNullable(r.GetString(3));
+        var preview = BuildThreadLastPreview(rawText, rawMeta)?.Trim() ?? "";
+        if (preview.Length > 120) preview = preview.Substring(0, 120);
+
+        var sender = senderType.ToLowerInvariant() switch
+        {
+            "bot" => string.IsNullOrWhiteSpace(senderId) ? "Бот" : senderId,
+            "system" => string.IsNullOrWhiteSpace(senderId) ? "Система" : senderId,
+            _ => await ResolveDisplayNameByLoginAsync(connection, senderId)
+        };
+        return (preview, sender);
+    }
+
     private static async Task<string> ResolveDisplayNameByLoginAsync(SqlConnection connection, string login)
     {
+        var key = login?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(key)) return "";
         const string sql = @"
             SELECT TOP 1
                 LTRIM(RTRIM(CONCAT(
@@ -1134,12 +1655,13 @@ public class ChatController : ControllerBase
                     CASE WHEN COALESCE(TRY_CONVERT(nvarchar(200), [Имя]), '') = '' THEN '' ELSE ' ' + COALESCE(TRY_CONVERT(nvarchar(200), [Имя]), '') END
                 )))
             FROM [Lexema_Кадры_ЛичнаяКарточка]
-            WHERE [Логин] = @Login;";
+            WHERE [Логин] = @Key
+               OR TRY_CONVERT(nvarchar(50), [ТабельныйНомер]) = @Key;";
         await using var cmd = new SqlCommand(sql, connection);
-        cmd.Parameters.AddWithValue("@Login", login);
+        cmd.Parameters.AddWithValue("@Key", key);
         var o = await cmd.ExecuteScalarAsync();
         var name = (o == null || o == DBNull.Value) ? "" : Convert.ToString(o)?.Trim();
-        return string.IsNullOrWhiteSpace(name) ? login : name!;
+        return string.IsNullOrWhiteSpace(name) ? key : name!;
     }
 
     private string? BuildUserAvatarPublicUrl(string? avatarFileName)
@@ -1148,6 +1670,66 @@ public class ChatController : ControllerBase
         var req = Request;
         var baseUrl = $"{req.Scheme}://{req.Host}{req.PathBase}";
         return $"{baseUrl}/uploads/avatars/{Uri.EscapeDataString(avatarFileName)}";
+    }
+
+    private string? ResolveThreadAvatarPublicUrl(string threadType, string? botId, string? avatarRaw)
+    {
+        if (threadType.Equals("user", StringComparison.OrdinalIgnoreCase))
+            return BuildUserAvatarPublicUrl(avatarRaw);
+        return BuildBotAvatarPublicUrl(botId, avatarRaw);
+    }
+
+    private string? BuildBotAvatarPublicUrl(string? botId, string? avatarRaw)
+    {
+        var req = Request;
+        var baseUrl = $"{req.Scheme}://{req.Host}{req.PathBase}".TrimEnd('/');
+        var raw = avatarRaw?.Trim();
+        if (!string.IsNullOrWhiteSpace(raw))
+        {
+            if (Uri.TryCreate(raw, UriKind.Absolute, out var abs))
+            {
+                // Avoid mixed-content in web client when DB stores old http URL for current host.
+                if (abs.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase) &&
+                    req.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) &&
+                    abs.Host.Equals(req.Host.Host, StringComparison.OrdinalIgnoreCase))
+                {
+                    var ub = new UriBuilder(abs) { Scheme = req.Scheme, Port = req.Host.Port ?? -1 };
+                    return ub.Uri.ToString();
+                }
+                return raw;
+            }
+            var normalized = raw.Replace('\\', '/');
+            if (!normalized.StartsWith('/')) normalized = "/" + normalized;
+            if (normalized.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+                return $"{baseUrl}{normalized}";
+            return $"{baseUrl}/uploads/bots/{Uri.EscapeDataString(normalized.TrimStart('/'))}";
+        }
+
+        var safeBotId = botId?.Trim();
+        if (string.IsNullOrWhiteSpace(safeBotId)) return null;
+        var botsDir = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), "uploads", "bots");
+        if (!Directory.Exists(botsDir)) return null;
+        try
+        {
+            var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".webp", ".gif" };
+            var file = Directory.GetFiles(botsDir, $"{safeBotId}_*")
+                .Where(p => exts.Contains(Path.GetExtension(p)))
+                .OrderByDescending(System.IO.File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(file)) return null;
+            return $"{baseUrl}/uploads/bots/{Uri.EscapeDataString(Path.GetFileName(file))}";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private Task PublishChatUpdatedAsync(string login)
+    {
+        var group = ChatRealtimeHub.NormalizeGroup(login);
+        if (string.IsNullOrWhiteSpace(group)) return Task.CompletedTask;
+        return _chatHub.Clients.Group(group).SendAsync("chat:updated", new { login });
     }
 
     private static async Task EnsureAppUserProfileTableAsync(SqlConnection connection)
@@ -1176,6 +1758,10 @@ public class ChatController : ControllerBase
                    ISNULL(P.[CanTechAdmin], 0) AS IsTechAdmin,
                    ISNULL(B.[IsOfficial], 0) AS IsOfficialBot,
                    CASE
+                       WHEN ISNULL(T.[Type], 'bot') = 'user' AND PR.[LastSeenAt] >= DATEADD(MINUTE, -2, GETUTCDATE()) THEN 1
+                       ELSE 0
+                   END AS IsOnline,
+                   CASE
                        WHEN ISNULL(T.[Type], 'bot') = 'user' THEN
                            CASE
                                WHEN UP.[AvatarFileName] IS NULL OR LTRIM(RTRIM(UP.[AvatarFileName])) = '' THEN NULL
@@ -1199,35 +1785,56 @@ public class ChatController : ControllerBase
             ) U
             LEFT JOIN [App_UserPermissions] P ON P.[Login] = COALESCE(T.[PeerLogin], T.[Title])
             LEFT JOIN [App_BotProfiles] B ON B.[BotId] = T.[BotId]
+            LEFT JOIN [App_UserPresence] PR ON PR.[Login] = T.[PeerLogin]
             LEFT JOIN [App_UserProfile] UP ON UP.[Login] = T.[PeerLogin]
             WHERE T.[OwnerLogin] = @Login AND T.[Id] = @ThreadId
               AND {LegacyPollSurveyBotThreadExcludeSql("T")};";
         await using var cmd = new SqlCommand(sql, connection);
         cmd.Parameters.AddWithValue("@Login", ownerLogin);
         cmd.Parameters.AddWithValue("@ThreadId", threadId);
-        await using var reader = await cmd.ExecuteReaderAsync();
-        if (!await reader.ReadAsync()) return null;
-        var avatarRaw = reader.IsDBNull(15) ? null : reader.GetString(15);
-        var avatarUrl = avatarRaw;
-        if (!string.IsNullOrWhiteSpace(avatarRaw) &&
-            !avatarRaw.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
-            !avatarRaw.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            avatarUrl = BuildUserAvatarPublicUrl(avatarRaw);
-        }
+        int id;
+        string threadType;
+        string title;
+        string? botId;
+        DateTime createdAtUtc;
+        DateTime? lastMessageAtUtc;
+        bool lastFromSelf;
+        int unreadCount;
+        bool isTechAdmin;
+        bool isOfficialBot;
+        bool isOnline;
+        string? avatarUrl;
+        string? peerLogin;
+        int lastMessageId;
+        string? rawLastText;
+        string? rawLastMeta;
 
-        var lastFromSelf = false;
-        if (!reader.IsDBNull(8) &&
-            string.Equals(reader.GetString(8), "user", StringComparison.OrdinalIgnoreCase))
+        await using (var reader = await cmd.ExecuteReaderAsync())
         {
+            if (!await reader.ReadAsync()) return null;
+            id = reader.GetInt32(0);
+            threadType = reader.IsDBNull(1) ? "bot" : reader.GetString(1);
+            title = reader.IsDBNull(2) ? "" : reader.GetString(2);
+            botId = reader.IsDBNull(3) ? null : reader.GetString(3);
+            var avatarRaw = reader.IsDBNull(16) ? null : reader.GetString(16);
+            avatarUrl = ResolveThreadAvatarPublicUrl(threadType, botId, avatarRaw);
+            createdAtUtc = reader.GetDateTime(4);
+            rawLastText = reader.IsDBNull(5) ? null : _cipher.UnprotectFieldNullable(reader.GetString(5));
+            lastMessageAtUtc = reader.IsDBNull(6) ? null : reader.GetDateTime(6);
+            rawLastMeta = reader.IsDBNull(7) ? null : _cipher.UnprotectFieldNullable(reader.GetString(7));
             var sid = reader.IsDBNull(9) ? "" : reader.GetString(9).Trim();
-            lastFromSelf = !string.IsNullOrEmpty(sid) &&
+            lastFromSelf = !reader.IsDBNull(8) &&
+                string.Equals(reader.GetString(8), "user", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrEmpty(sid) &&
                 string.Equals(sid, ownerLogin, StringComparison.OrdinalIgnoreCase);
+            lastMessageId = reader.IsDBNull(10) ? 0 : Convert.ToInt32(reader.GetValue(10));
+            peerLogin = reader.IsDBNull(11) ? null : reader.GetString(11);
+            unreadCount = reader.IsDBNull(12) ? 0 : Convert.ToInt32(reader.GetValue(12));
+            isTechAdmin = !reader.IsDBNull(13) && Convert.ToInt32(reader.GetValue(13)) == 1;
+            isOfficialBot = !reader.IsDBNull(14) && Convert.ToInt32(reader.GetValue(14)) == 1;
+            isOnline = !reader.IsDBNull(15) && Convert.ToInt32(reader.GetValue(15)) == 1;
         }
 
-        var threadType = reader.IsDBNull(1) ? "bot" : reader.GetString(1);
-        var peerLogin = reader.IsDBNull(11) ? null : reader.GetString(11);
-        var lastMessageId = reader.IsDBNull(10) ? 0 : Convert.ToInt32(reader.GetValue(10));
         var lastMessageIsRead = false;
         if (lastFromSelf &&
             threadType.Equals("user", StringComparison.OrdinalIgnoreCase) &&
@@ -1241,23 +1848,22 @@ public class ChatController : ControllerBase
             }
         }
 
-        var rawLastText = reader.IsDBNull(5) ? null : _cipher.UnprotectFieldNullable(reader.GetString(5));
-        var rawLastMeta = reader.IsDBNull(7) ? null : _cipher.UnprotectFieldNullable(reader.GetString(7));
         var lastPreview = BuildThreadLastPreview(rawLastText, rawLastMeta);
 
         return new ThreadItem(
-            Id: reader.GetInt32(0),
+            Id: id,
             Type: threadType,
-            Title: reader.IsDBNull(2) ? "" : reader.GetString(2),
-            BotId: reader.IsDBNull(3) ? null : reader.GetString(3),
-            CreatedAtUtc: reader.GetDateTime(4),
+            Title: title,
+            BotId: botId,
+            CreatedAtUtc: createdAtUtc,
             LastMessageText: lastPreview,
-            LastMessageAtUtc: reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+            LastMessageAtUtc: lastMessageAtUtc,
             LastMessageFromSelf: lastFromSelf,
             LastMessageIsRead: lastMessageIsRead,
-            UnreadCount: reader.IsDBNull(12) ? 0 : Convert.ToInt32(reader.GetValue(12)),
-            IsTechAdmin: !reader.IsDBNull(13) && Convert.ToInt32(reader.GetValue(13)) == 1,
-            IsOfficialBot: !reader.IsDBNull(14) && Convert.ToInt32(reader.GetValue(14)) == 1,
+            UnreadCount: unreadCount,
+            IsTechAdmin: isTechAdmin,
+            IsOfficialBot: isOfficialBot,
+            IsOnline: isOnline,
             AvatarUrl: avatarUrl
         );
     }
@@ -1283,6 +1889,7 @@ public class ChatController : ControllerBase
                 [SenderId] NVARCHAR(100) NULL,
                 [Text] NVARCHAR(MAX) NOT NULL,
                 [MetaJson] NVARCHAR(MAX) NULL,
+                [IsEdited] BIT NOT NULL DEFAULT 0,
                 [CreatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
             );
 
@@ -1349,6 +1956,8 @@ public class ChatController : ControllerBase
                 ALTER TABLE [App_Messages] ADD [SenderId] NVARCHAR(100) NULL;
             IF COL_LENGTH('App_Messages', 'MetaJson') IS NULL
                 ALTER TABLE [App_Messages] ADD [MetaJson] NVARCHAR(MAX) NULL;
+            IF COL_LENGTH('App_Messages', 'IsEdited') IS NULL
+                ALTER TABLE [App_Messages] ADD [IsEdited] BIT NOT NULL CONSTRAINT [DF_App_Messages_IsEdited] DEFAULT 0;
             IF COL_LENGTH('App_Messages', 'CreatedAt') IS NULL
                 ALTER TABLE [App_Messages] ADD [CreatedAt] DATETIME2 NOT NULL CONSTRAINT [DF_App_Messages_CreatedAt] DEFAULT GETUTCDATE();
 
@@ -1363,7 +1972,34 @@ public class ChatController : ControllerBase
 
         await using var cmd = new SqlCommand(sql, connection);
         await cmd.ExecuteNonQueryAsync();
+        await EnsureUserPresenceTableAsync(connection);
         await RemoveLegacyPollSurveyBotDataAsync(connection);
+    }
+
+    private static async Task EnsureUserPresenceTableAsync(SqlConnection connection)
+    {
+        const string sql = @"
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'App_UserPresence')
+            CREATE TABLE [App_UserPresence] (
+                [Login] NVARCHAR(100) NOT NULL PRIMARY KEY,
+                [LastSeenAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+            );";
+        await using var cmd = new SqlCommand(sql, connection);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static async Task TouchUserPresenceAsync(SqlConnection connection, string login)
+    {
+        if (string.IsNullOrWhiteSpace(login)) return;
+        await EnsureUserPresenceTableAsync(connection);
+        const string sql = @"
+            IF EXISTS (SELECT 1 FROM [App_UserPresence] WHERE [Login] = @Login)
+                UPDATE [App_UserPresence] SET [LastSeenAt] = GETUTCDATE() WHERE [Login] = @Login
+            ELSE
+                INSERT INTO [App_UserPresence] ([Login], [LastSeenAt]) VALUES (@Login, GETUTCDATE());";
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@Login", login.Trim());
+        await cmd.ExecuteNonQueryAsync();
     }
 
     private static async Task<BotProfileItem> GetBotProfileInternalAsync(SqlConnection connection, string botId)
@@ -1534,10 +2170,10 @@ public class ChatController : ControllerBase
                 if (first.ValueKind == JsonValueKind.Object &&
                     first.TryGetProperty("url", out var u0))
                 {
-                    var u = u0.GetString()?.Trim();
-                    if (!string.IsNullOrWhiteSpace(u))
+                    var firstUrl = u0.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(firstUrl))
                     {
-                        mediaUrl = u;
+                        mediaUrl = firstUrl;
                         if (first.TryGetProperty("kind", out var k0))
                             mediaKind = k0.GetString()?.Trim();
                         return true;
@@ -1564,9 +2200,50 @@ public class ChatController : ControllerBase
         if (!string.IsNullOrWhiteSpace(t)) return t;
         if (TryParseChatMediaMeta(metaJson, out _, out var kind))
         {
-            return string.Equals(kind, "video", StringComparison.OrdinalIgnoreCase) ? "Видео" : "Изображение";
+            if (string.Equals(kind, "video", StringComparison.OrdinalIgnoreCase)) return "Видео";
+            if (string.Equals(kind, "apk", StringComparison.OrdinalIgnoreCase)) return "APK файл";
+            return "Изображение";
         }
         return t;
+    }
+
+    private async Task BroadcastBotMessageToAllOwnersAsync(SqlConnection connection, string botId, string text, string? metaJson)
+    {
+        const string sql = @"
+            SELECT [Id]
+            FROM [App_Threads]
+            WHERE ISNULL([Type], 'bot') = 'bot'
+              AND [BotId] = @BotId;";
+        var ids = new List<int>();
+        await using (var cmd = new SqlCommand(sql, connection))
+        {
+            cmd.Parameters.AddWithValue("@BotId", botId);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+            {
+                ids.Add(r.GetInt32(0));
+            }
+        }
+
+        foreach (var id in ids)
+        {
+            await InsertThreadBotReplyWithMetaAsync(connection, id, botId, text, metaJson);
+        }
+    }
+
+    private async Task InsertThreadBotReplyWithMetaAsync(SqlConnection connection, int threadId, string botId, string text, string? metaJson)
+    {
+        var encText = _cipher.ProtectField(text ?? "");
+        var encMeta = _cipher.ProtectFieldNullable(metaJson);
+        const string sql = @"
+            INSERT INTO [App_Messages] ([ThreadId], [SenderType], [SenderId], [Text], [MetaJson], [CreatedAt])
+            VALUES (@ThreadId, 'bot', @BotId, @Text, @MetaJson, GETUTCDATE());";
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@ThreadId", threadId);
+        cmd.Parameters.AddWithValue("@BotId", botId);
+        cmd.Parameters.AddWithValue("@Text", encText);
+        cmd.Parameters.AddWithValue("@MetaJson", (object?)encMeta ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     private async Task<string> SaveChatMediaFileAsync(IFormFile media)
@@ -1775,6 +2452,7 @@ public record ThreadItem(
     int UnreadCount,
     bool IsTechAdmin,
     bool IsOfficialBot,
+    bool IsOnline,
     string? AvatarUrl
 );
 
@@ -1789,13 +2467,16 @@ public record MessageItem(
     DateTime CreatedAtUtc,
     string? MetaJson,
     bool SenderIsTechAdmin,
-    bool IsRead
+    bool IsRead,
+    bool IsEdited
 );
 
 public record MessagesResponse(bool Success, string Message, List<MessageItem>? Messages);
 
 public record SendMessageRequest(string Login, string Text, string? MetaJson = null);
 public record SendMessageResponse(bool Success, string Message, MessageItem? Item);
+public record EditMessageRequest(string Login, string Text);
+public record EditMessageResponse(bool Success, string Message, MessageItem? Item);
 public record ChatMediaUploadResponse(bool Success, string Message, string? Url, string? Mime, string? Kind);
 public record DeleteMessageResponse(bool Success, string Message);
 public record ClearThreadHistoryResponse(bool Success, string Message);
@@ -1809,6 +2490,7 @@ public record ColleagueSearchItem(
     string FullName,
     string Position,
     bool IsTechAdmin,
+    bool IsOnline,
     string? AvatarUrl
 );
 public record ColleagueSearchResponse(bool Success, string Message, List<ColleagueSearchItem>? Colleagues);

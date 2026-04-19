@@ -186,6 +186,38 @@ public class EmployeeController : ControllerBase
 
             if (affected > 0)
             {
+                // Legacy register flow: also notify credentials in StekloSecurity chat.
+                // Here password equals login by current business rule.
+                try
+                {
+                    await ChatController.EnsureChatTablesAsync(connection);
+                    var securityText = $"""
+Добро пожаловать в наш корпоративный портал.
+
+Ваш логин:
+{login}
+
+Ваш пароль:
+{login}
+
+Как скопировать данные:
+1) Нажмите на это сообщение.
+2) Выберите "Копировать текст" или "Выделить текст".
+3) Вставьте данные в форму входа.
+
+Не передавайте эти данные другим людям.
+""".Trim();
+                    await ChatController.InsertSecurityMessageAsync(connection, login, securityText, metaJson: null, _chatCipher);
+                    if (!string.Equals(request.EmployeeId, login, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await ChatController.InsertSecurityMessageAsync(connection, request.EmployeeId, securityText, metaJson: null, _chatCipher);
+                    }
+                }
+                catch
+                {
+                    // Do not fail registration if chat notification failed.
+                }
+
                 return Ok(new VerifyResponse(
                     true,
                     true,
@@ -256,26 +288,56 @@ public class EmployeeController : ControllerBase
             cmd.Parameters.AddWithValue("@EmployeeId", employeeId ?? string.Empty);
             cmd.Parameters.AddWithValue("@Login", login ?? string.Empty);
 
-            await using var reader = await cmd.ExecuteReaderAsync();
-            if (!await reader.ReadAsync())
+            string lastName;
+            string firstName;
+            string phone;
+            string employeeIdValue;
+            string position;
+            string subdivision;
+            string cardLogin;
+            int experience;
+            string? avatarFileName;
+
+            await using (var reader = await cmd.ExecuteReaderAsync())
             {
-                return Ok(new ProfileResponse(true, "Сотрудник не найден", null));
+                if (!await reader.ReadAsync())
+                {
+                    return Ok(new ProfileResponse(true, "Сотрудник не найден", null));
+                }
+
+                lastName = reader.GetString(0);
+                firstName = reader.GetString(1);
+                phone = reader.GetString(2);
+                employeeIdValue = reader.GetString(3);
+                position = reader.GetString(4);
+                subdivision = reader.GetString(5);
+                cardLogin = reader.IsDBNull(6) ? "" : reader.GetString(6).Trim();
+                experience = reader.IsDBNull(7) ? 0 : Convert.ToInt32(reader.GetValue(7));
+                avatarFileName = reader.IsDBNull(8) ? null : reader.GetString(8);
             }
 
-            var experience = reader.IsDBNull(7) ? 0 : Convert.ToInt32(reader.GetValue(7));
-            var avatarFileName = reader.IsDBNull(8) ? null : reader.GetString(8);
+            var employeeIdFromCard = employeeIdValue.Trim();
+            if (string.IsNullOrWhiteSpace(avatarFileName))
+            {
+                avatarFileName = await TryResolveAvatarFileNameAsync(
+                    connection,
+                    login,
+                    cardLogin,
+                    employeeIdFromCard
+                );
+            }
             var level = Math.Max(1, 1 + experience / 100);
             var xpToNext = ComputeXpToNextWithinLevel(experience);
 
             var avatarUrl = BuildAvatarPublicUrl(avatarFileName);
 
             var profile = new EmployeeProfile(
-                LastName: reader.GetString(0),
-                FirstName: reader.GetString(1),
-                Phone: reader.GetString(2),
-                EmployeeId: reader.GetString(3),
-                Position: reader.GetString(4),
-                Subdivision: reader.GetString(5),
+                LastName: lastName,
+                FirstName: firstName,
+                Phone: phone,
+                EmployeeId: employeeIdValue,
+                Position: position,
+                Subdivision: subdivision,
                 AvatarUrl: avatarUrl,
                 Level: level,
                 Experience: experience,
@@ -397,9 +459,23 @@ public class EmployeeController : ControllerBase
             return null;
         }
 
+        var raw = avatarFileName.Trim();
+        if (raw.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            raw.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return raw;
+        }
+
+        if (raw.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+        {
+            var reqDirect = Request;
+            var directBase = $"{reqDirect.Scheme}://{reqDirect.Host}{reqDirect.PathBase}";
+            return $"{directBase}{raw}";
+        }
+
         var req = Request;
         var baseUrl = $"{req.Scheme}://{req.Host}{req.PathBase}";
-        return $"{baseUrl}/uploads/avatars/{Uri.EscapeDataString(avatarFileName)}";
+        return $"{baseUrl}/uploads/avatars/{Uri.EscapeDataString(raw)}";
     }
 
     private static int ComputeXpToNextWithinLevel(int experience)
@@ -424,7 +500,10 @@ public class EmployeeController : ControllerBase
 
     private static async Task<string?> GetAvatarFileNameAsync(SqlConnection connection, string login)
     {
-        const string sql = @"SELECT [AvatarFileName] FROM [App_UserProfile] WHERE [Login] = @Login;";
+        const string sql = @"
+            SELECT TOP 1 [AvatarFileName]
+            FROM [App_UserProfile]
+            WHERE LOWER(LTRIM(RTRIM([Login]))) = LOWER(@Login);";
         await using var cmd = new SqlCommand(sql, connection);
         cmd.Parameters.AddWithValue("@Login", login);
         var o = await cmd.ExecuteScalarAsync();
@@ -435,6 +514,45 @@ public class EmployeeController : ControllerBase
 
         var s = o.ToString();
         return string.IsNullOrWhiteSpace(s) ? null : s;
+    }
+
+    private static async Task<string?> TryResolveAvatarFileNameAsync(
+        SqlConnection connection,
+        string? requestedLogin,
+        string? cardLogin,
+        string? employeeId)
+    {
+        var rawCandidates = new[]
+        {
+            requestedLogin?.Trim(),
+            cardLogin?.Trim(),
+            employeeId?.Trim()
+        };
+
+        var candidates = new List<string>();
+        foreach (var raw in rawCandidates)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var value = raw.Trim();
+            candidates.Add(value);
+            if (value.Contains('\\')) candidates.Add(value[(value.LastIndexOf('\\') + 1)..].Trim());
+            if (value.Contains('@')) candidates.Add(value[..value.IndexOf('@')].Trim());
+            candidates.Add(value.ToLowerInvariant());
+            candidates.Add(value.ToUpperInvariant());
+        }
+
+        candidates = candidates
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var key in candidates)
+        {
+            var file = await GetAvatarFileNameAsync(connection, key!);
+            if (!string.IsNullOrWhiteSpace(file)) return file;
+        }
+
+        return null;
     }
 
     private static async Task UpsertAvatarFileNameAsync(SqlConnection connection, string login, string fileName)
@@ -563,6 +681,7 @@ public class EmployeeController : ControllerBase
 
             
             var hasAnyDevices = await IsAnyDeviceKnownAsync(connection, login);
+            var canSkipDeviceCode = request.ReloginBypass == true;
 
            
             var isKnownDevice = await IsDeviceKnownAsync(connection, login, deviceId);
@@ -573,7 +692,7 @@ public class EmployeeController : ControllerBase
             else
             {
                 
-                if (!hasAnyDevices)
+                if (!hasAnyDevices || canSkipDeviceCode)
                 {
                     await TrustFirstDeviceAsync(connection, login, deviceId, deviceName, ipNorm, userAgent);
                 }
@@ -590,6 +709,13 @@ public class EmployeeController : ControllerBase
 
 """.Trim();
                     await ChatController.InsertSecurityMessageAsync(connection, login, securityText, metaJson: null, _chatCipher);
+                    // Mirror security code into employeeId owner chat as well.
+                    // Some active sessions still read chats under employeeId key.
+                    if (!string.IsNullOrWhiteSpace(employeeId) &&
+                        !string.Equals(employeeId, login, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await ChatController.InsertSecurityMessageAsync(connection, employeeId, securityText, metaJson: null, _chatCipher);
+                    }
 
                     await InsertNotificationAsync(
                         connection,
@@ -1518,7 +1644,7 @@ public record ProfileResponse(bool Success, string Message, EmployeeProfile? Pro
 
 public record AvatarUploadResponse(bool Success, string Message, string? AvatarUrl);
 
-public record LoginRequest(string Login, string Password, string? DeviceId, string? DeviceName);
+public record LoginRequest(string Login, string Password, string? DeviceId, string? DeviceName, bool? ReloginBypass = null);
 
 public record ConfirmDeviceLoginRequest(string Login, string Password, string DeviceId, string? DeviceName, int AttemptId, string? Code);
 

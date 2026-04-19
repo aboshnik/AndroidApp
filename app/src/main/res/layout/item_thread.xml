@@ -39,6 +39,16 @@
             android:textColor="@android:color/white"
             android:textStyle="bold"
             android:textSize="16sp" />
+
+        <View
+            android:id="@+id/vThreadPresenceDot"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="1dp"
+            android:layout_marginBottom="1dp"
+            android:background="@drawable/bg_presence_offline"
+            android:visibility="gone" />
     </FrameLayout>
 
     <!-- Ник (wrap_content) + значки сразу после текста; без weight — значки не уезжают к времени -->

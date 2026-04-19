@@ -8,7 +8,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.provider.ContactsContract
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Menu
@@ -58,9 +57,16 @@ class ChatsActivity : BaseActivity() {
     private var employeeId: String = ""
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val threadsRefreshIntervalMs = 2500L
+    private val threadsRefreshRunnable = object : Runnable {
+        override fun run() {
+            if (canShowUi()) loadThreads(silent = true)
+            mainHandler.postDelayed(this, threadsRefreshIntervalMs)
+        }
+    }
     private val refreshAfterPushRunnable = Runnable {
         if (!canShowUi()) return@Runnable
-        loadThreads()
+        loadThreads(silent = true)
     }
     private val threadsPushReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -153,6 +159,7 @@ class ChatsActivity : BaseActivity() {
     }
 
     override fun onStop() {
+        mainHandler.removeCallbacks(threadsRefreshRunnable)
         mainHandler.removeCallbacks(refreshAfterPushRunnable)
         try {
             unregisterReceiver(threadsPushReceiver)
@@ -166,6 +173,13 @@ class ChatsActivity : BaseActivity() {
         // When coming back from other screens, keep Chats active
         setBottomTab("chats")
         loadThreads()
+        mainHandler.removeCallbacks(threadsRefreshRunnable)
+        mainHandler.postDelayed(threadsRefreshRunnable, threadsRefreshIntervalMs)
+    }
+
+    override fun onPause() {
+        mainHandler.removeCallbacks(threadsRefreshRunnable)
+        super.onPause()
     }
 
     private fun setBottomTab(tab: String) {
@@ -202,29 +216,31 @@ class ChatsActivity : BaseActivity() {
         startActivity(i)
     }
 
-    private fun loadThreads() {
+    private fun loadThreads(silent: Boolean = false) {
         if (employeeId.isBlank()) {
             empty.text = getString(R.string.error_network)
             empty.visibility = View.VISIBLE
             return
         }
 
-        progress.visibility = View.VISIBLE
-        empty.visibility = View.GONE
-        findViewById<TextView>(R.id.tvChatsTitle).text = "Соединение…"
+        if (!silent) {
+            progress.visibility = View.VISIBLE
+            empty.visibility = View.GONE
+            findViewById<TextView>(R.id.tvChatsTitle).text = "Соединение…"
+        }
 
         scope.launch {
             try {
                 val resp = withContext(Dispatchers.IO) {
                     ApiClient.chatApi.getThreads(login = employeeId)
                 }
-                progress.visibility = View.GONE
+                if (!silent) progress.visibility = View.GONE
                 val body = resp.body()
                 if (!resp.isSuccessful || body == null || !body.success) {
                     empty.text = body?.message ?: getString(R.string.error_network)
                     empty.visibility = View.VISIBLE
-                    adapter.submit(emptyList())
-                    findViewById<TextView>(R.id.tvChatsTitle).text = "Чаты"
+                    if (!silent) adapter.submit(emptyList())
+                    if (!silent) findViewById<TextView>(R.id.tvChatsTitle).text = "Чаты"
                     return@launch
                 }
                 val list = body.threads.orEmpty().sortedByDescending { threadActivityMillis(it) }
@@ -232,14 +248,16 @@ class ChatsActivity : BaseActivity() {
                 updateChatsBottomBadge(list)
                 empty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
                 if (list.isEmpty()) empty.text = "Нет диалогов"
-                findViewById<TextView>(R.id.tvChatsTitle).text = "Чаты"
+                if (!silent) findViewById<TextView>(R.id.tvChatsTitle).text = "Чаты"
             } catch (e: Exception) {
-                progress.visibility = View.GONE
-                empty.text = "${getString(R.string.error_network)} ${e.message}"
-                empty.visibility = View.VISIBLE
-                adapter.submit(emptyList())
-                updateChatsBottomBadge(emptyList())
-                findViewById<TextView>(R.id.tvChatsTitle).text = "Чаты"
+                if (!silent) {
+                    progress.visibility = View.GONE
+                    empty.text = "${getString(R.string.error_network)} ${e.message}"
+                    empty.visibility = View.VISIBLE
+                    adapter.submit(emptyList())
+                    updateChatsBottomBadge(emptyList())
+                    findViewById<TextView>(R.id.tvChatsTitle).text = "Чаты"
+                }
             }
         }
     }
@@ -399,6 +417,7 @@ class ChatsActivity : BaseActivity() {
         val view = layoutInflater.inflate(R.layout.dialog_colleague_profile, null, false)
         val btnClose = view.findViewById<View>(R.id.btnCloseColleagueProfile)
         val ivAvatar = view.findViewById<ImageView>(R.id.ivColleagueProfileAvatar)
+        val vPresence = view.findViewById<View>(R.id.vColleagueProfilePresenceDot)
         val tvName = view.findViewById<TextView>(R.id.tvColleagueProfileName)
         val tvStatus = view.findViewById<TextView>(R.id.tvColleagueProfileStatus)
         val tvSubtitle = view.findViewById<TextView>(R.id.tvColleagueProfileSubtitle)
@@ -406,16 +425,18 @@ class ChatsActivity : BaseActivity() {
         val tvPosition = view.findViewById<TextView>(R.id.tvColleagueProfilePosition)
         val btnWrite = view.findViewById<View>(R.id.btnColleagueWrite)
         val btnCall = view.findViewById<View>(R.id.btnColleagueCall)
-        val btnAddContact = view.findViewById<View>(R.id.btnColleagueAddContact)
 
         tvName.text = profile.lastName + " " + profile.firstName
-        tvStatus.text = "в сети недавно"
+        tvStatus.text = if (colleague.isOnline) "в сети" else "не в сети"
+        vPresence.setBackgroundResource(
+            if (colleague.isOnline) R.drawable.bg_presence_online else R.drawable.bg_presence_offline
+        )
         tvSubtitle.text = buildString {
             append("@${colleague.login}")
             if (profile.employeeId.isNotBlank()) append(" • ${profile.employeeId}")
             if (colleague.isTechAdmin) append(" • техадмин")
         }
-        tvPhone.text = profile.phone.ifBlank { "Телефон не указан" }
+        tvPhone.text = formatPhoneForProfile(profile.phone).ifBlank { "Телефон не указан" }
         tvPosition.text = profile.position.ifBlank { "Не указана" }
 
         if (!profile.avatarUrl.isNullOrBlank()) {
@@ -444,31 +465,34 @@ class ChatsActivity : BaseActivity() {
                 safeToast("У коллеги не указан телефон", long = true)
                 return@setOnClickListener
             }
-            openContactInsert(profile, phone)
-        }
-        btnAddContact.setOnClickListener {
-            val phone = profile.phone.trim()
-            if (phone.isBlank()) {
-                safeToast("У коллеги не указан телефон", long = true)
-                return@setOnClickListener
-            }
-            openContactInsert(profile, phone)
+            openDialer(phone)
         }
     }
 
-    private fun openContactInsert(profile: EmployeeProfile, phone: String) {
-        val displayName = "${profile.lastName} ${profile.firstName}".trim()
-        val intent = Intent(ContactsContract.Intents.Insert.ACTION).apply {
-            type = ContactsContract.RawContacts.CONTENT_TYPE
-            putExtra(ContactsContract.Intents.Insert.NAME, displayName)
-            putExtra(ContactsContract.Intents.Insert.PHONE, phone)
+    private fun openDialer(phoneRaw: String) {
+        val phone = formatPhoneForProfile(phoneRaw)
+        if (phone.isBlank()) {
+            safeToast("У коллеги не указан телефон", long = true)
+            return
         }
+        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phone)}"))
         try {
             startActivity(intent)
         } catch (_: Exception) {
-            val dial = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phone)}"))
-            startActivity(dial)
+            safeToast("Не удалось открыть набор номера", long = true)
         }
+    }
+
+    private fun formatPhoneForProfile(phoneRaw: String?): String {
+        val digits = phoneRaw.orEmpty().filter { it.isDigit() }
+        if (digits.isBlank()) return ""
+        val normalized = when {
+            digits.length == 11 && digits.startsWith("8") -> "7" + digits.substring(1)
+            digits.length == 10 -> "7$digits"
+            digits.length == 11 && digits.startsWith("7") -> digits
+            else -> digits
+        }
+        return if (normalized.startsWith("7")) "+$normalized" else "+7$normalized"
     }
 
     private fun openDirectThread(colleague: ColleagueItem) {
@@ -506,6 +530,7 @@ class ChatsActivity : BaseActivity() {
             val name: TextView = itemView.findViewById(R.id.tvColleagueName)
             val subtitle: TextView = itemView.findViewById(R.id.tvColleagueSubtitle)
             val techBadge: ImageView = itemView.findViewById(R.id.ivColleagueTechBadge)
+            val presenceDot: View = itemView.findViewById(R.id.vColleaguePresenceDot)
         }
 
         override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): VH {
@@ -523,6 +548,9 @@ class ChatsActivity : BaseActivity() {
                 if (item.position.isNotBlank()) append(" • ${item.position}")
             }
             holder.techBadge.visibility = if (item.isTechAdmin) View.VISIBLE else View.GONE
+            holder.presenceDot.setBackgroundResource(
+                if (item.isOnline) R.drawable.bg_presence_online else R.drawable.bg_presence_offline
+            )
             holder.avatarText.text = item.fullName.trim().firstOrNull()?.uppercase() ?: "?"
             val url = item.avatarUrl?.trim().orEmpty()
             if (url.isNotBlank()) {

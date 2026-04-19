@@ -34,12 +34,14 @@ class MainActivity : BaseActivity() {
         const val EXTRA_PREFILL_PASSWORD = "extra_prefill_password"
         const val EXTRA_PREFILL_REMEMBER_ME = "extra_prefill_remember_me"
         const val EXTRA_AUTO_LOGIN_SECONDS = "extra_auto_login_seconds"
+        const val EXTRA_RELOGIN_BYPASS_DEVICE_CODE = "extra_relogin_bypass_device_code"
     }
 
     private val logTag = "MainActivityNet"
 
     /** ID попытки входа с нового устройства (код на другое устройство). */
     private var pendingDeviceLoginAttemptId: Int? = null
+    private var reloginBypassDeviceCode: Boolean = false
 
     private val requestNotifPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -140,7 +142,8 @@ class MainActivity : BaseActivity() {
                                         login = login,
                                         password = password,
                                         deviceId = deviceId,
-                                        deviceName = deviceName
+                                        deviceName = deviceName,
+                                        reloginBypass = reloginBypassDeviceCode
                                     )
                                 )
                             }
@@ -398,6 +401,7 @@ class MainActivity : BaseActivity() {
         etPassword.setText(password)
         cbRememberMe.isChecked = intent.getBooleanExtra(EXTRA_PREFILL_REMEMBER_ME, true)
         val autoSeconds = intent.getIntExtra(EXTRA_AUTO_LOGIN_SECONDS, 0).coerceAtLeast(0)
+        reloginBypassDeviceCode = intent.getBooleanExtra(EXTRA_RELOGIN_BYPASS_DEVICE_CODE, false)
         if (autoSeconds > 0) {
             Toast.makeText(this, "Автовход через $autoSeconds сек.", Toast.LENGTH_SHORT).show()
             etLogin.postDelayed({ btnLogin.performClick() }, autoSeconds * 1000L)

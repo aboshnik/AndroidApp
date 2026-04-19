@@ -1,13 +1,16 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using EmployeeApi.Services;
+using EmployeeApi.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseWebRoot("wwwroot");
 
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
 builder.Services.AddSingleton<ChatMessageCipher>();
 builder.Services.AddHostedService<ServerDiagnosticsLifetimeHostedService>();
 builder.Services.AddCors(options =>
@@ -639,8 +642,14 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
-app.UseStaticFiles();
+var staticContentTypes = new FileExtensionContentTypeProvider();
+staticContentTypes.Mappings[".apk"] = "application/vnd.android.package-archive";
+app.UseStaticFiles(new StaticFileOptions
+{
+    ContentTypeProvider = staticContentTypes
+});
 app.MapControllers();
+app.MapHub<ChatRealtimeHub>("/hubs/chat");
 
 app.Run();
 

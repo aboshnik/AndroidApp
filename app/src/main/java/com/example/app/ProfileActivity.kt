@@ -134,7 +134,7 @@ class ProfileActivity : BaseActivity() {
         }
 
         rowCalendar.setOnClickListener {
-            startActivity(Intent(this, CalendarActivity::class.java))
+            safeToast("в разработке")
         }
         rowLogout.setOnClickListener {
             confirmLogout()

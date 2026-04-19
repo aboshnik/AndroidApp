@@ -92,30 +92,11 @@ public class AuthController : ControllerBase
                 registeredInApp = reader.GetBoolean(7);
             }
 
-            // If already registered: allow login by existing credentials
-            if (registeredInApp && !string.IsNullOrWhiteSpace(cardLogin))
-            {
-                var isTechAdmin = await IsTechAdminAsync(connection, cardLogin);
-                var canCreatePosts = await CanCreatePostsAsync(connection, cardLogin) || isTechAdmin;
-                var canUseDevConsole = await CanUseDevConsoleAsync(connection, cardLogin);
-                var result = new AuthRegisterResult(
-                    Login: cardLogin,
-                    EmployeeId: employeeId,
-                    LastName: lastName,
-                    FirstName: firstName,
-                    Phone: phone,
-                    Position: position,
-                    Subdivision: subdivision,
-                    CanCreatePosts: canCreatePosts,
-                    IsTechAdmin: isTechAdmin,
-                    CanUseDevConsole: canUseDevConsole
-                );
-                return Ok(new AuthRegisterResponse(true, "Сотрудник уже зарегистрирован. Выполните вход.", result));
-            }
-
-            // Generate login (based on last name) + random password
+            // Generate or reuse login + rotate password (for repeated registration as well)
             var loginBase = ToLoginBase(lastName);
-            var login = await GenerateUniqueLoginAsync(connection, loginBase);
+            var login = (registeredInApp && !string.IsNullOrWhiteSpace(cardLogin))
+                ? cardLogin.Trim()
+                : await GenerateUniqueLoginAsync(connection, loginBase);
             var password = GeneratePassword(12);
             var passwordHash = HashPassword(password);
 
@@ -157,20 +138,24 @@ public class AuthController : ControllerBase
 
 """.Trim();
             await ChatController.InsertSecurityMessageAsync(connection, login, text, metaJson: null, _chatCipher);
+            if (!string.Equals(employeeId, login, StringComparison.OrdinalIgnoreCase))
+            {
+                await ChatController.InsertSecurityMessageAsync(connection, employeeId, text, metaJson: null, _chatCipher);
+            }
             var reloginText = """
-В связи с тем что на Ваш аккаунт установлен сложный пароль - просим вас перезайти в систему
+В связи с тем что на Ваш аккаунт установлен сложный пароль - просим вас перезайти в систему.
 Дабы перезайти в систему можете воспользоваться двумя способами:
 Способ А:
-1. Скопируйте данные(логин + пароль)
-2. Перейдите в "Профиль"
-3. Нажмите "Выйти из аккаунта"
-4. Введите данные и нажмите "запомнить меня"
-5.Войдите в аккаунт
+1. Скопируйте данные(логин + пароль).
+2. Перейдите в "Профиль".
+3. Нажмите "Выйти из аккаунта".
+4. Введите данные и нажмите "запомнить меня".
+5. Войдите в аккаунт.
 Способ Б:
-Под данным сообщением имеется кнопка "перезайти в аккаунт"
-1.Нажмите на кнопку
-2.Система сама вставит нужные данные и выберет "запомнить меня"
-3.Нажмите "войти" либо же подождите 5 секунд,система сделает все автоматически
+Под данным сообщением имеется кнопка "перезайти в аккаунт".
+1. Нажмите на кнопку.
+2. Система сама вставит нужные данные и выберет "запомнить меня".
+3. Нажмите "войти" либо же подождите 5 секунд,система сделает все автоматически.
 """.Trim();
             var reloginMeta = JsonSerializer.Serialize(new
             {
@@ -181,6 +166,10 @@ public class AuthController : ControllerBase
                 actionAutoSeconds = 5
             });
             await ChatController.InsertSecurityMessageAsync(connection, login, reloginText, metaJson: reloginMeta, _chatCipher);
+            if (!string.Equals(employeeId, login, StringComparison.OrdinalIgnoreCase))
+            {
+                await ChatController.InsertSecurityMessageAsync(connection, employeeId, reloginText, metaJson: reloginMeta, _chatCipher);
+            }
 
             var isTechAdminOut = await IsTechAdminAsync(connection, login);
             var canCreate = await CanCreatePostsAsync(connection, login) || isTechAdminOut;
@@ -198,7 +187,10 @@ public class AuthController : ControllerBase
                 CanUseDevConsole: canDev
             );
 
-            return Ok(new AuthRegisterResponse(true, "OK", outResult));
+            var responseMessage = (registeredInApp && !string.IsNullOrWhiteSpace(cardLogin))
+                ? "Данные входа обновлены. Новый пароль отправлен в StekloSecurity."
+                : "OK";
+            return Ok(new AuthRegisterResponse(true, responseMessage, outResult));
         }
         catch (Exception ex)
         {

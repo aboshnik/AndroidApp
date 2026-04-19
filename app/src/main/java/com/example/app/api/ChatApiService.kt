@@ -6,6 +6,7 @@ import retrofit2.http.GET
 import retrofit2.http.DELETE
 import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Part
 import retrofit2.http.Query
@@ -56,6 +57,13 @@ interface ChatApiService {
         @Path("messageId") messageId: Int,
         @Query("login") login: String
     ): Response<DeleteMessageResponse>
+
+    @PUT("api/chat/threads/{threadId}/messages/{messageId}")
+    suspend fun editMessage(
+        @Path("threadId") threadId: Int,
+        @Path("messageId") messageId: Int,
+        @Body body: EditMessageRequest
+    ): Response<EditMessageResponse>
 
     /** POST вместо DELETE: Retrofit при 4xx часто отдаёт body=null; плюс часть прокси режет DELETE. */
     @POST("api/chat/threads/{threadId}/history/clear")

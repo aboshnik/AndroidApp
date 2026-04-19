@@ -84,6 +84,7 @@ class ThreadsAdapter(
         private val subtitle: TextView = itemView.findViewById(R.id.tvThreadSubtitle)
         private val avatar: TextView = itemView.findViewById(R.id.tvThreadAvatar)
         private val avatarImage: ImageView = itemView.findViewById(R.id.ivThreadAvatar)
+        private val presenceDot: View = itemView.findViewById(R.id.vThreadPresenceDot)
         private val time: TextView = itemView.findViewById(R.id.tvThreadTime)
         private val outgoingCheck: ImageView = itemView.findViewById(R.id.ivThreadOutgoingCheck)
         private val badge: TextView = itemView.findViewById(R.id.tvThreadBadge)
@@ -106,6 +107,13 @@ class ThreadsAdapter(
             }
             avatar.text = buildAvatarText(item)
             bindAvatar(item)
+            val showPresence = item.type.equals("user", ignoreCase = true)
+            presenceDot.visibility = if (showPresence) View.VISIBLE else View.GONE
+            if (showPresence) {
+                presenceDot.setBackgroundResource(
+                    if (item.isOnline) R.drawable.bg_presence_online else R.drawable.bg_presence_offline
+                )
+            }
             if (item.lastMessageFromSelf) {
                 outgoingCheck.visibility = View.VISIBLE
                 if (item.lastMessageIsRead) {

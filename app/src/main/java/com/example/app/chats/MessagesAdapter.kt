@@ -1,6 +1,7 @@
 package com.example.app.chats
 
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.media.MediaMetadataRetriever
 import android.view.LayoutInflater
 import android.view.View
@@ -21,7 +22,7 @@ import kotlin.concurrent.thread
 import org.json.JSONObject
 
 class MessagesAdapter(
-    private val selfLogin: String,
+    private val selfAliases: Set<String>,
     private val onClick: (item: MessageItem) -> Unit,
     private val onMediaClick: (item: MessageItem, mediaUrl: String) -> Unit,
     private val onLongPress: (item: MessageItem) -> Unit,
@@ -42,7 +43,7 @@ class MessagesAdapter(
         if (st == "system") return VT_SYSTEM
 
         val sender = item.senderId?.trim().orEmpty()
-        if (st == "user" && sender.isNotEmpty() && sender.equals(selfLogin, ignoreCase = true)) {
+        if (st == "user" && sender.isNotEmpty() && selfAliases.contains(sender.lowercase(Locale.getDefault()))) {
             return VT_OUT
         }
         return VT_IN
@@ -89,12 +90,15 @@ class MessagesAdapter(
 
         fun bind(item: MessageItem, position: Int, all: List<MessageItem>) {
             val media = parseChatMedia(item.metaJson)
-            if (media.isNotEmpty() && ivMedia != null) {
+            val visualMedia = media.filter {
+                it.second.equals("image", ignoreCase = true) || it.second.equals("video", ignoreCase = true)
+            }
+            if (visualMedia.isNotEmpty() && ivMedia != null) {
                 mediaWrap?.visibility = View.VISIBLE
-                val (url, kind) = media.first()
+                val (url, kind) = visualMedia.first()
                 val isVideo = kind.equals("video", ignoreCase = true)
                 tvVideoPlay?.visibility = if (isVideo) View.VISIBLE else View.GONE
-                val extra = media.size - 1
+                val extra = visualMedia.size - 1
                 tvMediaMore?.visibility = if (extra > 0) View.VISIBLE else View.GONE
                 tvMediaMore?.text = if (extra > 0) "+$extra" else ""
                 if (isVideo) {
@@ -124,9 +128,12 @@ class MessagesAdapter(
             }
 
             val text = item.text.trim()
-            tvText.text = item.text
-            tvText.visibility = if (text.isEmpty() && media.isNotEmpty()) View.GONE else View.VISIBLE
-            tvTime?.text = ChatTimeFormat.format(item.createdAtUtc)
+            val firstNonVisualKind = media.firstOrNull()?.second?.trim()?.lowercase(Locale.getDefault()).orEmpty()
+            val fallbackNonVisualText = if (text.isEmpty() && firstNonVisualKind == "apk") "APK файл" else item.text
+            tvText.text = fallbackNonVisualText
+            tvText.visibility = if (text.isEmpty() && visualMedia.isNotEmpty()) View.GONE else View.VISIBLE
+            val baseTime = ChatTimeFormat.format(item.createdAtUtc)
+            tvTime?.text = if (item.isEdited) "$baseTime · редакт." else baseTime
             bindStatus(item, position, all)
             bindReply(item.metaJson)
             bindMessageAction(item)
@@ -141,7 +148,9 @@ class MessagesAdapter(
             bubble?.setOnLongClickListener { onLongPress(item); true }
             tvText.setOnLongClickListener { onLongPress(item); true }
 
-            val selected = isSelected(item.id) || isHighlighted(item.id)
+            val selected = isSelected(item.id)
+            val highlighted = isHighlighted(item.id)
+            itemView.setBackgroundColor(if (highlighted) Color.parseColor("#334A90E2") else Color.TRANSPARENT)
             bubble?.setBackgroundResource(
                 when (viewType) {
                     VT_OUT -> if (selected) R.drawable.bg_message_out_selected else R.drawable.bg_message_out
@@ -193,6 +202,9 @@ class MessagesAdapter(
                 btnMessageAction?.setOnClickListener(null)
                 return
             }
+            val apkUrl = parseChatMedia(item.metaJson)
+                .firstOrNull { it.second.equals("apk", ignoreCase = true) }
+                ?.first
             val action = runCatching {
                 val obj = JSONObject(meta)
                 obj.optString("action", "").trim()
@@ -201,15 +213,22 @@ class MessagesAdapter(
                 val obj = JSONObject(meta)
                 obj.optString("actionLabel", "").trim()
             }.getOrDefault("")
-            if (action.isBlank() || label.isBlank()) {
-                btnMessageAction?.visibility = View.GONE
-                btnMessageAction?.setOnClickListener(null)
+            if (action.isNotBlank() && label.isNotBlank()) {
+                btnMessageAction?.text = label
+                btnMessageAction?.visibility = View.VISIBLE
+                btnMessageAction?.setOnClickListener { onActionClick(item, action) }
+                btnMessageAction?.setOnLongClickListener { onLongPress(item); true }
                 return
             }
-            btnMessageAction?.text = label
-            btnMessageAction?.visibility = View.VISIBLE
-            btnMessageAction?.setOnClickListener { onActionClick(item, action) }
-            btnMessageAction?.setOnLongClickListener { onLongPress(item); true }
+            if (!apkUrl.isNullOrBlank()) {
+                btnMessageAction?.text = "Скачать APK"
+                btnMessageAction?.visibility = View.VISIBLE
+                btnMessageAction?.setOnClickListener { onActionClick(item, "open_apk:$apkUrl") }
+                btnMessageAction?.setOnLongClickListener { onLongPress(item); true }
+                return
+            }
+            btnMessageAction?.visibility = View.GONE
+            btnMessageAction?.setOnClickListener(null)
         }
 
         private fun parseChatMedia(metaJson: String?): List<Pair<String, String>> {

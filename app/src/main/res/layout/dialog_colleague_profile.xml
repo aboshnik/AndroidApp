@@ -41,6 +41,14 @@
                 android:src="@drawable/ic_launcher_simple"
                 android:background="@drawable/bg_poll_editor_icon_circle" />
 
+            <View
+                android:id="@+id/vColleagueProfilePresenceDot"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginTop="-16dp"
+                android:layout_marginStart="66dp"
+                android:background="@drawable/bg_presence_offline" />
+
             <TextView
                 android:id="@+id/tvColleagueProfileName"
                 android:layout_width="match_parent"
@@ -97,17 +105,6 @@
             android:textSize="14sp"
             android:background="#3C4A59" />
 
-        <TextView
-            android:id="@+id/btnColleagueAddContact"
-            android:layout_width="0dp"
-            android:layout_height="64dp"
-            android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:gravity="center"
-            android:text="В контакты"
-            android:textColor="@android:color/white"
-            android:textSize="14sp"
-            android:background="#3C4A59" />
     </LinearLayout>
 
     <LinearLayout

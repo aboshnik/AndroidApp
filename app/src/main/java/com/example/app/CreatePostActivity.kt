@@ -2,6 +2,8 @@ package com.example.app
 
 import android.net.Uri
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.widget.EditText
 import android.widget.ImageView
@@ -37,6 +39,7 @@ class CreatePostActivity : BaseActivity() {
     private lateinit var mediaBottomRight: ImageView
     private lateinit var mediaMore: TextView
     private lateinit var pollChip: TextView
+    private lateinit var postTextCounter: TextView
 
     private val pickMedia = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNullOrEmpty()) return@registerForActivityResult
@@ -79,6 +82,7 @@ class CreatePostActivity : BaseActivity() {
         mediaBottomRight = findViewById(R.id.postMediaBottomRight)
         mediaMore = findViewById(R.id.postMediaMoreOverlay)
         pollChip = findViewById(R.id.tvPollChip)
+        postTextCounter = findViewById(R.id.tvPostTextCounter)
 
         findViewById<View>(R.id.btnCreatePostBack).setOnClickListener { finish() }
         findViewById<View>(R.id.btnAttachMedia).setOnClickListener { pickMedia.launch(arrayOf("image/*", "video/*")) }
@@ -95,6 +99,14 @@ class CreatePostActivity : BaseActivity() {
 
         bindMediaPreview()
         bindPollChip()
+        updatePostTextCounter()
+        etPostText.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                updatePostTextCounter()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
     }
 
     private fun bindPollChip() {
@@ -211,6 +223,11 @@ class CreatePostActivity : BaseActivity() {
             path.endsWith(".avi") ||
             path.endsWith(".m4v") ||
             path.endsWith(".3gp")
+    }
+
+    private fun updatePostTextCounter() {
+        val len = etPostText.text?.length ?: 0
+        postTextCounter.text = "$len/$MAX_POST_TEXT_LENGTH"
     }
 }
 

@@ -17,6 +17,7 @@ data class ThreadItem(
     @SerializedName("unreadCount") val unreadCount: Int = 0,
     @SerializedName("isTechAdmin") val isTechAdmin: Boolean = false,
     @SerializedName("isOfficialBot") val isOfficialBot: Boolean = false,
+    @SerializedName("isOnline") val isOnline: Boolean = false,
     @SerializedName("avatarUrl") val avatarUrl: String? = null
 )
 
@@ -32,6 +33,7 @@ data class ColleagueItem(
     @SerializedName("fullName") val fullName: String,
     @SerializedName("position") val position: String,
     @SerializedName("isTechAdmin") val isTechAdmin: Boolean = false,
+    @SerializedName("isOnline") val isOnline: Boolean = false,
     @SerializedName("avatarUrl") val avatarUrl: String? = null
 )
 
@@ -50,7 +52,8 @@ data class MessageItem(
     @SerializedName("createdAtUtc") val createdAtUtc: String,
     @SerializedName("metaJson") val metaJson: String? = null,
     @SerializedName("senderIsTechAdmin") val senderIsTechAdmin: Boolean = false,
-    @SerializedName("isRead") val isRead: Boolean = false
+    @SerializedName("isRead") val isRead: Boolean = false,
+    @SerializedName("isEdited") val isEdited: Boolean = false
 )
 
 data class MessagesResponse(
@@ -82,6 +85,17 @@ data class ChatMediaUploadResponse(
 data class DeleteMessageResponse(
     @SerializedName("success") val success: Boolean,
     @SerializedName("message") val message: String
+)
+
+data class EditMessageRequest(
+    @SerializedName("login") val login: String,
+    @SerializedName("text") val text: String
+)
+
+data class EditMessageResponse(
+    @SerializedName("success") val success: Boolean,
+    @SerializedName("message") val message: String,
+    @SerializedName("item") val item: MessageItem? = null
 )
 
 data class ClearThreadHistoryResponse(

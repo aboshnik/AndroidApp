@@ -89,6 +89,7 @@ class HomeActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         setBottomTab("home")
+        MyFirebaseMessagingService.clearTrackedGeneralNotifications(this)
         startChatsUnreadBadgeAutoRefresh(employeeId = employeeId, badgeViewId = R.id.navChatsBadge)
         autoRefreshHandler.removeCallbacks(autoRefreshRunnable)
         autoRefreshHandler.postDelayed(autoRefreshRunnable, autoRefreshIntervalMs)

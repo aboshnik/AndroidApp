@@ -18,12 +18,15 @@ import coil.load
 import com.example.app.api.BotProfileItem
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.app.BaseActivity
 import com.example.app.MediaViewerActivity
+import com.example.app.MyFirebaseMessagingService
 import com.example.app.R
 import com.example.app.SessionManager
 import com.example.app.api.ApiClient
+import com.example.app.api.EditMessageRequest
 import com.example.app.api.MessageItem
 import com.example.app.api.SendMessageRequest
 import com.example.app.api.UpdateBotProfileRequest
@@ -33,6 +36,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
+import coil.request.videoFrameMillis
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -49,6 +53,7 @@ class ChatActivity : BaseActivity() {
 
     private var threadId: Int = 0
     private var employeeId: String = ""
+    private var accountLogin: String = ""
     private var threadType: String = ""
     private var threadIsTechAdmin: Boolean = false
     private var threadBotId: String = ""
@@ -81,6 +86,9 @@ class ChatActivity : BaseActivity() {
     private val pickChatMedia = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
         setPendingMedia(uris.orEmpty())
     }
+    private val pickApkDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) setPendingMedia(listOf(uri))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,6 +96,7 @@ class ChatActivity : BaseActivity() {
         setContentView(R.layout.activity_chat)
 
         threadId = intent.getIntExtra(EXTRA_THREAD_ID, 0)
+        MyFirebaseMessagingService.clearChatNotification(this, threadId)
         val title = intent.getStringExtra(EXTRA_THREAD_TITLE).orEmpty()
         threadType = intent.getStringExtra(EXTRA_THREAD_TYPE).orEmpty()
         threadBotId = intent.getStringExtra(EXTRA_THREAD_BOT_ID)?.trim().orEmpty()
@@ -101,6 +110,7 @@ class ChatActivity : BaseActivity() {
 
         val auth = getSharedPreferences("auth", MODE_PRIVATE)
         employeeId = auth.getString("employeeId", "")?.trim().orEmpty()
+        accountLogin = auth.getString("login", "")?.trim().orEmpty()
         isTechAdminSelf = auth.getBoolean("isTechAdmin", false)
         if (threadType.equals("bot", ignoreCase = true) && threadBotId.isNotBlank()) {
             tvTitle.setOnClickListener { openBotProfileDialog() }
@@ -111,7 +121,10 @@ class ChatActivity : BaseActivity() {
         empty = findViewById(R.id.messagesEmpty)
 
         adapter = MessagesAdapter(
-            selfLogin = employeeId,
+            selfAliases = setOf(employeeId, accountLogin)
+                .map { it.trim().lowercase() }
+                .filter { it.isNotBlank() }
+                .toSet(),
             onClick = { item ->
                 // Telegram-like:
                 // - if selection mode active -> toggle selection
@@ -151,7 +164,22 @@ class ChatActivity : BaseActivity() {
         recycler.adapter = adapter
 
         findViewById<View>(R.id.btnAttach).setOnClickListener {
-            pickChatMedia.launch(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+            val canPickApk = isTechAdminSelf &&
+                threadType.equals("bot", ignoreCase = true) &&
+                threadBotId.equals("StekloSecurity", ignoreCase = true)
+            if (canPickApk) {
+                safeShowDialog(
+                    androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("Что прикрепить?")
+                        .setItems(arrayOf("Фото/видео", "APK файл")) { _, which ->
+                            if (which == 1) pickApkDocument.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream"))
+                            else pickChatMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                )
+            } else {
+                pickChatMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+            }
         }
         findViewById<View>(R.id.btnSend).setOnClickListener { trySendMessage() }
         findViewById<View>(R.id.btnCancelMediaDraft).setOnClickListener { setPendingMedia(emptyList()) }
@@ -159,9 +187,6 @@ class ChatActivity : BaseActivity() {
         findViewById<View>(R.id.btnCancelReply).setOnClickListener { setReplyTo(null) }
 
         findViewById<View>(R.id.btnCancelSelection).setOnClickListener { clearSelection() }
-        findViewById<View>(R.id.btnForwardSelected).setOnClickListener {
-            safeToast("Скоро: пересылка ${selectedIds.size} сообщений")
-        }
         findViewById<View>(R.id.btnDeleteSelected).setOnClickListener {
             deleteSelectedMessages()
         }
@@ -173,6 +198,7 @@ class ChatActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        MyFirebaseMessagingService.clearChatNotification(this, threadId)
         uiHandler.removeCallbacks(refreshRunnable)
         uiHandler.postDelayed(refreshRunnable, refreshIntervalMs)
     }
@@ -210,15 +236,18 @@ class ChatActivity : BaseActivity() {
 
     private fun showMessageMenu(item: MessageItem) {
         val isAlreadySelected = selectedIds.contains(item.id)
-        val canDelete = item.senderType.equals("user", ignoreCase = true) &&
-            (item.senderId?.trim().orEmpty().equals(employeeId, ignoreCase = true))
+        val senderId = item.senderId?.trim().orEmpty()
+        val isOwnUserMessage = item.senderType.equals("user", ignoreCase = true) &&
+            (senderId.equals(employeeId, ignoreCase = true) || senderId.equals(accountLogin, ignoreCase = true))
+        val canDelete = isOwnUserMessage
+        val canEditText = isOwnUserMessage && item.text.isNotBlank()
 
         val options = mutableListOf<String>()
         options += if (isAlreadySelected) "Снять выбор" else "Выбрать"
         options += "Ответить"
+        if (canEditText) options += "Редактировать текст"
         options += "Копировать текст"
         options += "Выделить текст"
-        options += "Переслать"
         if (canDelete) options += "Удалить"
 
         safeShowDialog(
@@ -235,9 +264,9 @@ class ChatActivity : BaseActivity() {
                             updateSelectionUi()
                         }
                         "Ответить" -> setReplyTo(item)
+                        "Редактировать текст" -> editMessageText(item)
                         "Копировать текст" -> copyToClipboard(item.text)
                         "Выделить текст" -> showSelectableText(item.text)
-                        "Переслать" -> safeToast("Скоро: пересылка")
                         "Удалить" -> {
                             selectedIds.clear()
                             selectedIds.add(item.id)
@@ -251,15 +280,58 @@ class ChatActivity : BaseActivity() {
         )
     }
 
+    private fun editMessageText(item: MessageItem) {
+        val input = EditText(this).apply {
+            setText(item.text)
+            setSelection(text.length)
+            minLines = 2
+            maxLines = 6
+        }
+        safeShowDialog(
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Редактировать текст")
+                .setView(input)
+                .setPositiveButton("Сохранить") { _, _ ->
+                    val newText = input.text?.toString()?.trim().orEmpty()
+                    if (newText.isBlank()) {
+                        safeToast("Текст не может быть пустым", long = true)
+                        return@setPositiveButton
+                    }
+                    if (newText == item.text.trim()) return@setPositiveButton
+                    scope.launch {
+                        try {
+                            val resp = withContext(Dispatchers.IO) {
+                                ApiClient.chatApi.editMessage(
+                                    threadId = threadId,
+                                    messageId = item.id,
+                                    body = EditMessageRequest(login = employeeId, text = newText)
+                                )
+                            }
+                            val body = resp.body()
+                            if (!resp.isSuccessful || body == null || !body.success) {
+                                safeToast(body?.message ?: getString(R.string.error_network), long = true)
+                                return@launch
+                            }
+                            loadMessages(silent = true)
+                        } catch (e: Exception) {
+                            safeToast("${getString(R.string.error_network)} ${e.message}", long = true)
+                        }
+                    }
+                }
+                .setNegativeButton("Отмена", null)
+        )
+    }
+
     private fun setReplyTo(item: MessageItem?) {
         replyTo = item
         val v = findViewById<View>(R.id.replyPreview)
-        val tv = findViewById<TextView>(R.id.tvReplyText)
+        val tv = v.findViewById<TextView>(R.id.tvReplyText)
         if (item == null) {
             v.visibility = View.GONE
         } else {
             val who = buildSenderLabel(item)
-            tv.text = "Ответ $who: ${replySnippetForMessage(item)}"
+            val snippet = replySnippetForMessage(item).ifBlank { "Сообщение" }
+            tv.text = "Ответ $who: $snippet"
             v.visibility = View.VISIBLE
         }
     }
@@ -319,6 +391,28 @@ class ChatActivity : BaseActivity() {
     }
 
     private fun handleMessageAction(item: MessageItem, action: String) {
+        if (action.startsWith("open_apk:", ignoreCase = true)) {
+            val apkUrl = action.substringAfter("open_apk:", "").trim()
+            if (apkUrl.isBlank()) {
+                safeToast("Ссылка на APK не найдена", long = true)
+                return
+            }
+            safeShowDialog(
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Скачать APK")
+                    .setMessage("Открыть ссылку для скачивания APK?")
+                    .setPositiveButton("Скачать APK") { _, _ ->
+                        val opened = runCatching {
+                            val i = Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl))
+                            startActivity(i)
+                            true
+                        }.getOrDefault(false)
+                        if (!opened) safeToast("Не удалось открыть ссылку APK", long = true)
+                    }
+                    .setNegativeButton("Отмена", null)
+            )
+            return
+        }
         if (!item.senderType.equals("bot", ignoreCase = true)) return
         val sender = item.senderId?.trim().orEmpty()
         if (!sender.equals("StekloSecurity", ignoreCase = true)) return
@@ -338,6 +432,7 @@ class ChatActivity : BaseActivity() {
             putExtra(com.example.app.MainActivity.EXTRA_PREFILL_PASSWORD, password)
             putExtra(com.example.app.MainActivity.EXTRA_PREFILL_REMEMBER_ME, true)
             putExtra(com.example.app.MainActivity.EXTRA_AUTO_LOGIN_SECONDS, autoSeconds.coerceAtLeast(0))
+            putExtra(com.example.app.MainActivity.EXTRA_RELOGIN_BYPASS_DEVICE_CODE, true)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
         startActivity(i)
@@ -383,22 +478,28 @@ class ChatActivity : BaseActivity() {
     }
 
     private fun jumpToMessage(messageId: Int) {
-        val list = adapter.currentList
-        val idx = list.indexOfFirst { it.id == messageId }
-        if (idx < 0) {
-            safeToast("Сообщение не загружено", long = true)
-            return
+        fun highlightIfPresent(): Boolean {
+            val idx = adapter.currentList.indexOfFirst { it.id == messageId }
+            if (idx < 0) return false
+            recycler.smoothScrollToPosition(idx)
+            highlightedMessageId = messageId
+            adapter.notifyDataSetChanged()
+            uiHandler.postDelayed({
+                if (highlightedMessageId == messageId) {
+                    highlightedMessageId = null
+                    adapter.notifyDataSetChanged()
+                }
+            }, 2200)
+            return true
         }
-        recycler.smoothScrollToPosition(idx)
-        highlightedMessageId = messageId
-        adapter.notifyDataSetChanged()
-        uiHandler.removeCallbacksAndMessages(null)
+
+        if (highlightIfPresent()) return
+        loadMessages(silent = true)
         uiHandler.postDelayed({
-            if (highlightedMessageId == messageId) {
-                highlightedMessageId = null
-                adapter.notifyDataSetChanged()
+            if (!highlightIfPresent()) {
+                safeToast("Сообщение не найдено", long = true)
             }
-        }, 1200)
+        }, 420)
     }
 
     private fun deleteSelectedMessages() {
@@ -442,6 +543,7 @@ class ChatActivity : BaseActivity() {
                         mime.contains("gif", true) -> ".gif"
                         mime.contains("webm", true) -> ".webm"
                         mime.contains("video", true) || mime.contains("mp4", true) || mime.contains("quicktime", true) -> ".mp4"
+                        mime.contains("android.package-archive", true) || mime.contains("apk", true) || isApkUri(uri) -> ".apk"
                         else -> ".jpg"
                     }
                     val f = File(cacheDir, "chat_upload_${System.currentTimeMillis()}_${uploaded.size}$ext")
@@ -465,7 +567,11 @@ class ChatActivity : BaseActivity() {
                         safeToast(upBody?.message ?: getString(R.string.error_network), long = true)
                         return@launch
                     }
-                    val kind = if (upBody.kind.equals("video", ignoreCase = true)) "video" else "image"
+                    val kind = when {
+                        upBody.kind.equals("video", ignoreCase = true) -> "video"
+                        upBody.kind.equals("apk", ignoreCase = true) -> "apk"
+                        else -> "image"
+                    }
                     uploaded += upBody.url to kind
                 }
                 val et = findViewById<EditText>(R.id.etMessage)
@@ -746,12 +852,15 @@ class ChatActivity : BaseActivity() {
             if (arr != null) {
                 for (i in 0 until arr.length()) {
                     val e = arr.optJSONObject(i) ?: continue
+                    val kind = e.optString("kind", "image").trim().lowercase()
+                    if (kind != "image" && kind != "video") continue
                     val u = e.optString("url", "").trim()
                     if (u.isNotBlank()) out += u
                 }
             }
             val one = o.optString("mediaUrl", "").trim()
-            if (one.isNotBlank()) out += one
+            val oneKind = o.optString("mediaKind", "image").trim().lowercase()
+            if (one.isNotBlank() && (oneKind == "image" || oneKind == "video")) out += one
             out.toList()
         }.getOrDefault(emptyList())
     }
@@ -770,19 +879,26 @@ class ChatActivity : BaseActivity() {
         }
         val uri = pendingMediaUris.first()
         val video = isVideoUri(uri)
+        val apks = pendingMediaUris.count { isApkUri(it) }
         val videos = pendingMediaUris.count { isVideoUri(it) }
-        val photos = pendingMediaUris.size - videos
+        val photos = pendingMediaUris.size - videos - apks
         label.text = buildString {
+            if (apks > 0) append("APK: $apks")
+            if (apks > 0 && (photos > 0 || videos > 0)) append("  ")
             if (photos > 0) append("Фото: $photos")
             if (photos > 0 && videos > 0) append("  ")
             if (videos > 0) append("Видео: $videos")
             append(" — можно добавить подпись")
         }
-        thumb.load(uri) {
-            crossfade(true)
-            if (video) videoFrameMillis(800L)
-            error(R.drawable.ic_launcher_simple)
-            placeholder(R.drawable.ic_launcher_simple)
+        if (isApkUri(uri)) {
+            thumb.setImageResource(android.R.drawable.sym_def_app_icon)
+        } else {
+            thumb.load(uri) {
+                crossfade(true)
+                if (video) videoFrameMillis(800L)
+                error(R.drawable.ic_launcher_simple)
+                placeholder(R.drawable.ic_launcher_simple)
+            }
         }
         preview.visibility = View.VISIBLE
     }
@@ -792,6 +908,13 @@ class ChatActivity : BaseActivity() {
         if (mime.startsWith("video/")) return true
         val ext = MimeTypeMap.getFileExtensionFromUrl(uri.toString())?.trim()?.lowercase().orEmpty()
         return ext in setOf("mp4", "mov", "mkv", "webm", "avi", "m4v", "3gp")
+    }
+
+    private fun isApkUri(uri: Uri): Boolean {
+        val mime = contentResolver.getType(uri)?.trim()?.lowercase().orEmpty()
+        if (mime.contains("android.package-archive")) return true
+        val ext = MimeTypeMap.getFileExtensionFromUrl(uri.toString())?.trim()?.lowercase().orEmpty()
+        return ext == "apk"
     }
 }
 
