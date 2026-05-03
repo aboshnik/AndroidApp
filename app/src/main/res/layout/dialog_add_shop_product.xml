@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_gravity="bottom"
+    android:orientation="vertical"
+    android:background="@drawable/bg_modal_sheet"
+    android:paddingHorizontal="14dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="14dp">
+
+    <View
+        android:layout_width="38dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="10dp"
+        android:background="@drawable/bg_thread_meta_badge" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Новый товар"
+        android:textColor="@color/text_primary"
+        android:textStyle="bold"
+        android:textSize="17sp"
+        android:gravity="center" />
+
+    <ImageView
+        android:id="@+id/ivDialogProductPreview"
+        android:layout_width="92dp"
+        android:layout_height="92dp"
+        android:layout_marginTop="10dp"
+        android:layout_gravity="center_horizontal"
+        android:src="@drawable/coin"
+        android:contentDescription="Превью товара"
+        android:background="@drawable/bg_shop_product_media" />
+
+    <TextView
+        android:id="@+id/btnPickProductImage"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:background="@drawable/bg_action_media"
+        android:text="Выбрать фото из галереи"
+        android:textColor="@color/button_primary"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvUploadState"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp"
+        android:visibility="gone"
+        android:text="Загрузка фото..." />
+
+    <EditText
+        android:id="@+id/etDialogProductTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:hint="Название товара"
+        android:background="@drawable/bg_input_soft"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="10dp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_secondary" />
+
+    <EditText
+        android:id="@+id/etDialogProductDesc"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="Описание"
+        android:minLines="2"
+        android:maxLines="4"
+        android:background="@drawable/bg_input_soft"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="10dp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_secondary" />
+
+    <EditText
+        android:id="@+id/etDialogProductPrice"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="Цена"
+        android:inputType="number"
+        android:background="@drawable/bg_input_soft"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="10dp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_secondary" />
+
+    <EditText
+        android:id="@+id/etDialogProductStock"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="Количество в наличии"
+        android:inputType="number"
+        android:background="@drawable/bg_input_soft"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="10dp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_secondary" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/btnDialogCancel"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="Отмена"
+            android:textColor="@color/text_secondary"
+            android:textStyle="bold"
+            android:background="@drawable/bg_input_soft" />
+
+        <TextView
+            android:id="@+id/btnDialogSave"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:gravity="center"
+            android:text="Добавить"
+            android:textColor="@android:color/white"
+            android:textStyle="bold"
+            android:background="@drawable/bg_shop_buy_btn" />
+    </LinearLayout>
+
+</LinearLayout>

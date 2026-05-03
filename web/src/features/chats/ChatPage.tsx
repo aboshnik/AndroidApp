@@ -3,12 +3,12 @@ import type { FormEvent } from 'react'
 import type { KeyboardEvent } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { deleteMessage, editMessage, getBotProfile, getMessages, getThreads, sendMessage, updateBotProfile, uploadBotAvatar, uploadChatMedia } from '../../api/chat'
+import { deleteMessage, editMessage, getBotProfile, getMessages, getThreads, searchEventRegistrantsMentions, sendMessage, updateBotProfile, uploadBotAvatar, uploadChatMedia } from '../../api/chat'
 import { subscribeChatUpdates } from '../../api/chatRealtime'
 import { getSession } from '../../shared/session'
 import { formatHm } from '../../shared/time'
 import { BotAvatar } from '../../shared/BotAvatar'
-import type { BotProfileItem, MessageItem } from '../../api/types'
+import type { BotProfileItem, EventRegistrantMentionItem, MessageItem } from '../../api/types'
 
 type ChatMedia = { url: string; kind: string }
 type ReplyMeta = { replyToId: number; replyText: string; replySender: string }
@@ -70,6 +70,8 @@ export function ChatPage() {
   const [jumpHighlightId, setJumpHighlightId] = useState<number | null>(null)
   const [botProfile, setBotProfile] = useState<BotProfileItem | null>(null)
   const [botProfileOpen, setBotProfileOpen] = useState(false)
+  const [mentionItems, setMentionItems] = useState<EventRegistrantMentionItem[]>([])
+  const [mentionOpen, setMentionOpen] = useState(false)
 
   const threadsQuery = useQuery({
     queryKey: ['threads', login],
@@ -129,6 +131,37 @@ export function ChatPage() {
 
   const messages = useMemo(() => query.data?.messages ?? [], [query.data?.messages])
   const currentThread = (threadsQuery.data?.threads ?? []).find((t) => t.id === currentThreadId)
+
+  const mentionQuery = useMemo(() => {
+    const at = text.lastIndexOf('@')
+    if (at < 0) return ''
+    const tail = text.slice(at + 1)
+    return tail.split(/\s/)[0]?.trim() ?? ''
+  }, [text])
+
+  useEffect(() => {
+    if (mentionQuery.length < 2) {
+      setMentionOpen(false)
+      setMentionItems([])
+      return
+    }
+    const t = window.setTimeout(async () => {
+      try {
+        const resp = await searchEventRegistrantsMentions(mentionQuery, 12)
+        if (!resp.success || !resp.items || resp.items.length === 0) {
+          setMentionItems([])
+          setMentionOpen(false)
+          return
+        }
+        setMentionItems(resp.items)
+        setMentionOpen(true)
+      } catch {
+        setMentionItems([])
+        setMentionOpen(false)
+      }
+    }, 180)
+    return () => window.clearTimeout(t)
+  }, [mentionQuery])
 
   function handleAction(item: MessageItem, action: string) {
     if (!action) return
@@ -275,6 +308,18 @@ export function ChatPage() {
     e.preventDefault()
     if (!text.trim() && !file) return
     sendMutation.mutate()
+  }
+
+  function applyMention(item: EventRegistrantMentionItem) {
+    const at = text.lastIndexOf('@')
+    if (at < 0) return
+    const before = text.slice(0, at + 1)
+    const after = text.slice(at + 1)
+    const suffixStart = after.search(/\s/)
+    const suffix = suffixStart >= 0 ? after.slice(suffixStart) : ''
+    const next = `${before}${item.mentionKey}${suffix}`
+    setText(next)
+    setMentionOpen(false)
   }
 
   function onComposerKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -473,6 +518,16 @@ export function ChatPage() {
                 {sendMutation.isPending ? '...' : '➤'}
               </button>
             </div>
+            {mentionOpen ? (
+              <div className="mention-dropdown">
+                {mentionItems.map((m) => (
+                  <button key={`${m.login}:${m.mentionKey}`} type="button" className="mention-item" onClick={() => applyMention(m)}>
+                    <span className="mention-name">{m.fullName}</span>
+                    <span className="mention-key">@{m.mentionKey}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {sendMutation.error ? <p className="error">{(sendMutation.error as Error).message}</p> : null}
           </form>
         </div>

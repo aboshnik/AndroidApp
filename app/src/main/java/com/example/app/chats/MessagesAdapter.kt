@@ -2,6 +2,7 @@ package com.example.app.chats
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import androidx.core.content.ContextCompat
 import android.media.MediaMetadataRetriever
 import android.view.LayoutInflater
 import android.view.View
@@ -20,9 +21,12 @@ import com.example.app.api.MessageItem
 import java.util.Locale
 import kotlin.concurrent.thread
 import org.json.JSONObject
+import org.json.JSONException
 
 class MessagesAdapter(
     private val selfAliases: Set<String>,
+    private val incomingAvatarUrl: String?,
+    private val incomingAvatarFallback: String,
     private val onClick: (item: MessageItem) -> Unit,
     private val onMediaClick: (item: MessageItem, mediaUrl: String) -> Unit,
     private val onLongPress: (item: MessageItem) -> Unit,
@@ -57,7 +61,19 @@ class MessagesAdapter(
             else -> R.layout.item_message_system
         }
         val v = inflater.inflate(layout, parent, false)
-        return VH(v, onClick, onMediaClick, onLongPress, onActionClick, onReplyJump, isSelected, isHighlighted, viewType)
+        return VH(
+            v,
+            incomingAvatarUrl,
+            incomingAvatarFallback,
+            onClick,
+            onMediaClick,
+            onLongPress,
+            onActionClick,
+            onReplyJump,
+            isSelected,
+            isHighlighted,
+            viewType
+        )
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
@@ -66,6 +82,8 @@ class MessagesAdapter(
 
     class VH(
         itemView: View,
+        private val incomingAvatarUrl: String?,
+        private val incomingAvatarFallback: String,
         private val onClick: (MessageItem) -> Unit,
         private val onMediaClick: (MessageItem, String) -> Unit,
         private val onLongPress: (MessageItem) -> Unit,
@@ -87,6 +105,16 @@ class MessagesAdapter(
         private val tvVideoPlay: TextView? = itemView.findViewById(R.id.tvMessageVideoPlay)
         private val tvMediaMore: TextView? = itemView.findViewById(R.id.tvMessageMediaMore)
         private val btnMessageAction: TextView? = itemView.findViewById(R.id.btnMessageAction)
+        private val coinTransferCard: View? = itemView.findViewById(R.id.coinTransferCard)
+        private val tvCoinTransferTitle: TextView? = itemView.findViewById(R.id.tvCoinTransferTitle)
+        private val tvCoinTransferAmount: TextView? = itemView.findViewById(R.id.tvCoinTransferAmount)
+        private val tvCoinTransferSubtitle: TextView? = itemView.findViewById(R.id.tvCoinTransferSubtitle)
+        private val tvCoinTransferComment: TextView? = itemView.findViewById(R.id.tvCoinTransferComment)
+        private val tvCoinTransferMetaTime: TextView? = itemView.findViewById(R.id.tvCoinTransferMetaTime)
+        private val tvCoinTransferMetaStatus: TextView? = itemView.findViewById(R.id.tvCoinTransferMetaStatus)
+        private val incomingAvatar: View? = itemView.findViewById(R.id.incomingAvatar)
+        private val incomingAvatarImage: ImageView? = itemView.findViewById(R.id.ivIncomingAvatar)
+        private val incomingAvatarText: TextView? = itemView.findViewById(R.id.tvIncomingAvatarText)
 
         fun bind(item: MessageItem, position: Int, all: List<MessageItem>) {
             val media = parseChatMedia(item.metaJson)
@@ -132,9 +160,10 @@ class MessagesAdapter(
             val fallbackNonVisualText = if (text.isEmpty() && firstNonVisualKind == "apk") "APK файл" else item.text
             tvText.text = fallbackNonVisualText
             tvText.visibility = if (text.isEmpty() && visualMedia.isNotEmpty()) View.GONE else View.VISIBLE
+            val isCoinTransfer = bindCoinTransfer(item)
             val baseTime = ChatTimeFormat.format(item.createdAtUtc)
             tvTime?.text = if (item.isEdited) "$baseTime · редакт." else baseTime
-            bindStatus(item, position, all)
+            bindStatus(item)
             bindReply(item.metaJson)
             bindMessageAction(item)
 
@@ -150,23 +179,137 @@ class MessagesAdapter(
 
             val selected = isSelected(item.id)
             val highlighted = isHighlighted(item.id)
-            itemView.setBackgroundColor(if (highlighted) Color.parseColor("#334A90E2") else Color.TRANSPARENT)
-            bubble?.setBackgroundResource(
-                when (viewType) {
-                    VT_OUT -> if (selected) R.drawable.bg_message_out_selected else R.drawable.bg_message_out
-                    VT_IN -> if (selected) R.drawable.bg_message_in_selected else R.drawable.bg_message_in
-                    else -> if (selected) R.drawable.bg_message_in_selected else R.drawable.bg_message_in
-                }
-            )
+            val prev = all.getOrNull(position - 1)
+            val next = all.getOrNull(position + 1)
+            val prevSame = prev?.let { isSameBubbleGroup(item, it) } == true
+            val nextSame = next?.let { isSameBubbleGroup(item, it) } == true
+            applyGroupSpacing(prevSame, nextSame)
+            if (isCoinTransfer) {
+                tvTime?.visibility = View.GONE
+                tvStatus?.visibility = View.GONE
+            } else {
+                applyMetaVisibility(nextSame)
+            }
+            if (viewType == VT_IN) {
+                val showAvatar = !prevSame
+                incomingAvatar?.visibility = if (showAvatar) View.VISIBLE else View.INVISIBLE
+                if (showAvatar) bindIncomingAvatar(item)
+            }
+            if (isCoinTransfer) {
+                bubble?.background = null
+            } else {
+                bubble?.setBackgroundResource(resolveBubbleBackground(prevSame, nextSame))
+            }
+            val bg = when {
+                highlighted -> Color.parseColor("#334A90E2")
+                selected -> ContextCompat.getColor(itemView.context, R.color.thread_item_selected_bg)
+                else -> Color.TRANSPARENT
+            }
+            itemView.setBackgroundColor(bg)
         }
 
-        private fun bindStatus(item: MessageItem, position: Int, all: List<MessageItem>) {
+        private fun applyGroupSpacing(prevSame: Boolean, nextSame: Boolean) {
+            val density = itemView.resources.displayMetrics.density
+            val top = if (prevSame) 2 else 8
+            val bottom = if (nextSame) 2 else 8
+            (itemView.layoutParams as? RecyclerView.LayoutParams)?.let { lp ->
+                lp.topMargin = (top * density).toInt()
+                lp.bottomMargin = (bottom * density).toInt()
+                itemView.layoutParams = lp
+            }
+        }
+
+        private fun resolveBubbleBackground(prevSame: Boolean, nextSame: Boolean): Int {
+            return when (viewType) {
+                VT_OUT -> when {
+                    !prevSame && !nextSame -> R.drawable.bg_message_out_single
+                    !prevSame && nextSame -> R.drawable.bg_message_out_top
+                    prevSame && nextSame -> R.drawable.bg_message_out_middle
+                    else -> R.drawable.bg_message_out_bottom
+                }
+                else -> when {
+                    !prevSame && !nextSame -> R.drawable.bg_message_in_single
+                    !prevSame && nextSame -> R.drawable.bg_message_in_top
+                    prevSame && nextSame -> R.drawable.bg_message_in_middle
+                    else -> R.drawable.bg_message_in_bottom
+                }
+            }
+        }
+
+        private fun isSameBubbleGroup(current: MessageItem, other: MessageItem): Boolean {
+            if (current.senderType.equals("system", ignoreCase = true)) return false
+            if (other.senderType.equals("system", ignoreCase = true)) return false
+            if (!current.senderType.equals(other.senderType, ignoreCase = true)) return false
+            val currentSender = current.senderId?.trim().orEmpty().lowercase(Locale.getDefault())
+            val otherSender = other.senderId?.trim().orEmpty().lowercase(Locale.getDefault())
+            if (currentSender.isNotBlank() && otherSender.isNotBlank()) {
+                return currentSender == otherSender
+            }
+            return current.senderName?.trim().orEmpty()
+                .equals(other.senderName?.trim().orEmpty(), ignoreCase = true)
+        }
+
+        private fun bindStatus(item: MessageItem) {
             if (viewType != VT_OUT) {
                 tvStatus?.visibility = View.GONE
                 return
             }
             tvStatus?.visibility = View.VISIBLE
             tvStatus?.text = if (item.isRead) "✓✓" else "✓"
+            tvStatus?.setTextColor(
+                ContextCompat.getColor(
+                    itemView.context,
+                    if (item.isRead) R.color.thread_outgoing_check else R.color.thread_outgoing_check_unread
+                )
+            )
+        }
+
+        private fun bindIncomingAvatar(item: MessageItem) {
+            val bySender = item.senderName
+                ?.split(" ")
+                ?.filter { it.isNotBlank() }
+                ?.take(2)
+                ?.joinToString("") { it.first().uppercase() }
+                .orEmpty()
+            val fallback = bySender.ifBlank { incomingAvatarFallback.ifBlank { "Ч" } }
+            incomingAvatarText?.text = fallback
+            val url = incomingAvatarUrl?.trim().orEmpty()
+            if (url.isNotBlank()) {
+                incomingAvatarImage?.visibility = View.VISIBLE
+                incomingAvatarText?.visibility = View.GONE
+                incomingAvatarImage?.load(url) {
+                    crossfade(true)
+                    error(R.drawable.ic_launcher_simple)
+                }
+            } else {
+                incomingAvatarImage?.setImageDrawable(null)
+                incomingAvatarImage?.visibility = View.GONE
+                incomingAvatarText?.visibility = View.VISIBLE
+            }
+        }
+
+        private fun applyMetaVisibility(nextSame: Boolean) {
+            val showMeta = !nextSame
+            setMetaVisibleWithFade(tvTime, showMeta)
+            if (viewType == VT_OUT) setMetaVisibleWithFade(tvStatus, showMeta)
+        }
+
+        private fun setMetaVisibleWithFade(view: TextView?, visible: Boolean) {
+            view ?: return
+            if (!visible) {
+                view.animate().cancel()
+                view.alpha = 1f
+                view.visibility = View.GONE
+                return
+            }
+            if (view.visibility == View.VISIBLE && view.alpha >= 0.99f) return
+            view.animate().cancel()
+            view.alpha = 0f
+            view.visibility = View.VISIBLE
+            view.animate()
+                .alpha(1f)
+                .setDuration(130L)
+                .start()
         }
 
         private fun bindReply(metaJson: String?) {
@@ -229,6 +372,60 @@ class MessagesAdapter(
             }
             btnMessageAction?.visibility = View.GONE
             btnMessageAction?.setOnClickListener(null)
+        }
+
+        private fun bindCoinTransfer(item: MessageItem): Boolean {
+            val meta = item.metaJson?.trim().orEmpty()
+            if (meta.isBlank()) {
+                coinTransferCard?.visibility = View.GONE
+                tvTime?.visibility = View.VISIBLE
+                tvStatus?.visibility = if (viewType == VT_OUT) View.VISIBLE else View.GONE
+                return false
+            }
+            val parsed = runCatching {
+                val obj = JSONObject(meta)
+                if (!obj.optString("type", "").equals("coin_transfer", ignoreCase = true)) return@runCatching null
+                val amount = obj.optInt("amount", 0)
+                val fromName = obj.optString("fromName", "").trim()
+                val fromLogin = obj.optString("fromLogin", "").trim()
+                val toName = obj.optString("toName", "").trim()
+                val toLogin = obj.optString("toLogin", "").trim()
+                val comment = obj.optString("comment", "").trim()
+                CoinTransferViewModel(
+                    amount = amount,
+                    fromLabel = fromName.ifBlank { fromLogin.ifBlank { "Отправитель" } },
+                    toLabel = toName.ifBlank { toLogin.ifBlank { "Получатель" } },
+                    comment = comment
+                )
+            }.getOrNull() ?: run {
+                coinTransferCard?.visibility = View.GONE
+                tvTime?.visibility = View.VISIBLE
+                tvStatus?.visibility = if (viewType == VT_OUT) View.VISIBLE else View.GONE
+                return false
+            }
+
+            tvText.visibility = View.GONE
+            coinTransferCard?.visibility = View.VISIBLE
+            tvCoinTransferTitle?.text = "Передача монет"
+            tvCoinTransferAmount?.text = parsed.amount.toString()
+            tvCoinTransferSubtitle?.text = "${parsed.fromLabel} → ${parsed.toLabel}"
+            if (parsed.comment.isBlank()) {
+                tvCoinTransferComment?.visibility = View.GONE
+            } else {
+                tvCoinTransferComment?.visibility = View.VISIBLE
+                tvCoinTransferComment?.text = parsed.comment
+            }
+            val timeText = ChatTimeFormat.format(item.createdAtUtc)
+            tvCoinTransferMetaTime?.text = timeText
+            if (viewType == VT_OUT) {
+                tvCoinTransferMetaStatus?.visibility = View.VISIBLE
+                tvCoinTransferMetaStatus?.text = if (item.isRead) "✓✓" else "✓"
+            } else {
+                tvCoinTransferMetaStatus?.visibility = View.GONE
+            }
+            tvTime?.visibility = View.GONE
+            tvStatus?.visibility = View.GONE
+            return true
         }
 
         private fun parseChatMedia(metaJson: String?): List<Pair<String, String>> {
@@ -300,6 +497,13 @@ class MessagesAdapter(
                 runCatching { mmr.release() }
             }
         }
+
+        private data class CoinTransferViewModel(
+            val amount: Int,
+            val fromLabel: String,
+            val toLabel: String,
+            val comment: String
+        )
     }
 
     private class Diff : DiffUtil.ItemCallback<MessageItem>() {

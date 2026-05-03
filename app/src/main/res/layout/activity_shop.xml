@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/poll_editor_bg">
+
+    <LinearLayout
+        android:id="@+id/topBarShop"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_home_header"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingTop="14dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="12dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Магазин"
+                android:textColor="@android:color/white"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:background="@drawable/bg_shop_balance_pill"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="12dp">
+
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:contentDescription="Баланс"
+                    android:src="@drawable/coin" />
+
+                <TextView
+                    android:id="@+id/tvShopBalanceCompact"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="0"
+                    android:textColor="@android:color/white"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <ImageView
+                android:id="@+id/btnHeaderOrders"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_shop_balance_pill"
+                android:contentDescription="История"
+                android:gravity="center"
+                android:padding="8dp"
+                android:src="@drawable/ic_shop_receipt" />
+
+            <ImageView
+                android:id="@+id/btnHeaderAddProduct"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_shop_balance_pill"
+                android:contentDescription="Добавить товар"
+                android:padding="8dp"
+                android:src="@drawable/ic_shop_add"
+                android:visibility="gone" />
+
+            <ImageView
+                android:id="@+id/btnHeaderCart"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_shop_balance_pill"
+                android:contentDescription="Корзина"
+                android:gravity="center"
+                android:padding="8dp"
+                android:src="@drawable/ic_shop_cart" />
+        </LinearLayout>
+
+        <HorizontalScrollView
+            android:layout_width="411dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/shopCategories"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginTop="12dp"
+        android:clipToPadding="false"
+        android:paddingBottom="8dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/topBarShop">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/shopBalanceCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_profile_card"
+                android:orientation="horizontal"
+                android:padding="12dp"
+                android:gravity="center_vertical"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:src="@drawable/coin"
+                    android:contentDescription="Монеты" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tvShopBalance"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/text_primary"
+                        android:textStyle="bold"
+                        android:textSize="16sp"
+                        android:text="Баланс: 0" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/cartPanel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_profile_card"
+                android:orientation="vertical"
+                android:padding="12dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Корзина"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold"
+                    android:textSize="16sp" />
+
+                <LinearLayout
+                    android:id="@+id/cartItemsContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:id="@+id/tvCartTotal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Итого: 0"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/btnCheckout"
+                    android:layout_width="match_parent"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:text="Оформить заказ"
+                    android:textColor="@color/button_primary"
+                    android:textStyle="bold"
+                    android:background="@drawable/bg_feed_action_button_ripple" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/productsSection"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical"
+                android:paddingBottom="8dp">
+
+                <LinearLayout
+                    android:id="@+id/productsContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/ordersSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_profile_card"
+                android:orientation="vertical"
+                android:padding="12dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="История заказов"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold"
+                    android:textSize="16sp" />
+
+                <LinearLayout
+                    android:id="@+id/ordersContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="vertical" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
+

@@ -22,6 +22,10 @@ interface PostApiService {
         @Part("content") content: RequestBody,
         @Part("authorLogin") authorLogin: RequestBody,
         @Part("isImportant") isImportant: RequestBody,
+        @Part("isEvent") isEvent: RequestBody?,
+        @Part("eventCoinReward") eventCoinReward: RequestBody?,
+        @Part("eventGrantDelayDays") eventGrantDelayDays: RequestBody?,
+        @Part("eventGrantInstant") eventGrantInstant: RequestBody?,
         @Part("pollJson") pollJson: RequestBody?,
         @Part media: List<MultipartBody.Part>
     ): Response<CreatePostResponse>
@@ -42,4 +46,16 @@ interface PostApiService {
         @Path("id") id: Int,
         @Body request: VoteRequest
     ): Response<VoteResponse>
+
+    @POST("api/post/{id}/register-event")
+    suspend fun registerEvent(
+        @Path("id") id: Int,
+        @Body request: EventRegisterRequest
+    ): Response<EventRegisterResponse>
+
+    @GET("api/post/event-registrants/search")
+    suspend fun searchEventRegistrants(
+        @Query("q") query: String,
+        @Query("take") take: Int = 20
+    ): Response<EventRegistrantsSearchResponse>
 }

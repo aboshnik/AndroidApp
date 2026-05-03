@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using EmployeeApi.Services;
+using EmployeeApi.Services.Coins;
 
 namespace EmployeeApi.Controllers;
 
@@ -16,12 +17,14 @@ public class EmployeeController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly IWebHostEnvironment _env;
     private readonly ChatMessageCipher _chatCipher;
+    private readonly ICoinsService _coinsService;
 
-    public EmployeeController(IConfiguration configuration, IWebHostEnvironment env, ChatMessageCipher chatCipher)
+    public EmployeeController(IConfiguration configuration, IWebHostEnvironment env, ChatMessageCipher chatCipher, ICoinsService coinsService)
     {
         _configuration = configuration;
         _env = env;
         _chatCipher = chatCipher;
+        _coinsService = coinsService;
     }
 
     [HttpPost("verify")]
@@ -328,6 +331,7 @@ public class EmployeeController : ControllerBase
             }
             var level = Math.Max(1, 1 + experience / 100);
             var xpToNext = ComputeXpToNextWithinLevel(experience);
+            var coinInfo = await _coinsService.GetBalanceAsync(cardLogin);
 
             var avatarUrl = BuildAvatarPublicUrl(avatarFileName);
 
@@ -341,7 +345,9 @@ public class EmployeeController : ControllerBase
                 AvatarUrl: avatarUrl,
                 Level: level,
                 Experience: experience,
-                XpToNext: xpToNext
+                XpToNext: xpToNext,
+                CoinBalance: coinInfo.Success ? coinInfo.Balance : 0,
+                NextPayoutDays: coinInfo.Success ? coinInfo.NextPayoutDays : 7
             );
 
             return Ok(new ProfileResponse(true, "OK", profile));
@@ -1638,7 +1644,9 @@ public record EmployeeProfile(
     string? AvatarUrl,
     int Level,
     int Experience,
-    int XpToNext);
+    int XpToNext,
+    int CoinBalance = 0,
+    int NextPayoutDays = 7);
 
 public record ProfileResponse(bool Success, string Message, EmployeeProfile? Profile);
 

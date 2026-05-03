@@ -12,7 +12,9 @@ data class EmployeeProfile(
     @SerializedName("avatarUrl") val avatarUrl: String? = null,
     @SerializedName("level") val level: Int = 1,
     @SerializedName("experience") val experience: Int = 0,
-    @SerializedName("xpToNext") val xpToNext: Int = 100
+    @SerializedName("xpToNext") val xpToNext: Int = 100,
+    @SerializedName("coinBalance") val coinBalance: Int = 0,
+    @SerializedName("nextPayoutDays") val nextPayoutDays: Int = 7
 )
 
 data class AvatarUploadResponse(

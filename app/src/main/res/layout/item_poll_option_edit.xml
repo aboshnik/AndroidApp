@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:layout_marginBottom="6dp">
+
+    <EditText
+        android:id="@+id/etPollOption"
+        android:layout_width="0dp"
+        android:layout_height="44dp"
+        android:layout_weight="1"
+        android:background="@drawable/bg_input_soft"
+        android:hint="Вариант"
+        android:paddingHorizontal="10dp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_secondary" />
+
+    <TextView
+        android:id="@+id/btnDeletePollOption"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="8dp"
+        android:gravity="center"
+        android:text="✕"
+        android:textSize="16sp"
+        android:textColor="#C62828"
+        android:background="@drawable/bg_dashed_add_option" />
+</LinearLayout>

@@ -15,9 +15,9 @@
 
     <FrameLayout
         android:id="@+id/threadAvatarWrap"
-        android:layout_width="52dp"
-        android:layout_height="52dp"
-        android:background="@drawable/bg_poll_editor_icon_circle"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="@drawable/bg_chat_avatar"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
@@ -70,7 +70,7 @@
             android:ellipsize="end"
             android:textColor="@color/text_primary"
             android:textStyle="bold"
-            android:textSize="16sp"
+            android:textSize="14sp"
             app:layout_constrainedWidth="true"
             app:layout_constraintHorizontal_bias="0"
             app:layout_constraintStart_toStartOf="parent"
@@ -87,6 +87,24 @@
             app:layout_constraintStart_toEndOf="@id/tvThreadTitle"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent">
+
+            <ImageView
+                android:id="@+id/ivThreadSoundBadge"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginStart="4dp"
+                android:src="@drawable/ic_thread_volume"
+                android:contentDescription="Звук"
+                android:visibility="gone" />
+
+            <ImageView
+                android:id="@+id/ivThreadPinBadge"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginStart="4dp"
+                android:src="@drawable/ic_thread_pin"
+                android:contentDescription="Закреплено"
+                android:visibility="gone" />
 
             <ImageView
                 android:id="@+id/ivThreadOfficialBadge"
@@ -144,12 +162,13 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="3dp"
         android:layout_marginStart="12dp"
+        android:layout_marginEnd="6dp"
         android:maxLines="1"
         android:ellipsize="end"
         android:textColor="@color/text_secondary"
-        android:textSize="14sp"
+        android:textSize="13sp"
         app:layout_constraintStart_toEndOf="@id/threadAvatarWrap"
-        app:layout_constraintEnd_toStartOf="@id/tvThreadBadge"
+        app:layout_constraintEnd_toStartOf="@id/tvThreadMetaBadge"
         app:layout_constraintTop_toBottomOf="@id/threadTitleRow" />
 
     <TextView
@@ -168,12 +187,27 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toBottomOf="@id/tvThreadSubtitle" />
 
+    <TextView
+        android:id="@+id/tvThreadMetaBadge"
+        android:layout_width="wrap_content"
+        android:layout_height="20dp"
+        android:layout_marginEnd="6dp"
+        android:minWidth="20dp"
+        android:gravity="center"
+        android:paddingHorizontal="6dp"
+        android:textColor="#FF6B7280"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:background="@drawable/bg_thread_meta_badge"
+        android:visibility="gone"
+        app:layout_constraintEnd_toStartOf="@id/tvThreadBadge"
+        app:layout_constraintBottom_toBottomOf="@id/tvThreadSubtitle" />
+
     <View
         android:id="@+id/threadDivider"
         android:layout_width="0dp"
         android:layout_height="1dp"
-        android:layout_marginStart="76dp"
-        android:background="@color/poll_editor_divider"
+        android:background="@color/divider_soft"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toBottomOf="parent" />

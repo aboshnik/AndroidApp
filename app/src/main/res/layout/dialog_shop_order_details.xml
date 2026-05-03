@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="14dp"
+    android:background="@drawable/bg_profile_card">
+
+    <TextView
+        android:id="@+id/tvDialogOrderNumber"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="ORD-..."
+        android:textColor="@color/text_primary"
+        android:textStyle="bold"
+        android:textSize="17sp" />
+
+    <TextView
+        android:id="@+id/tvDialogOrderMeta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Дата · 0 шт."
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_profile_action_row"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="8dp">
+
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:src="@drawable/coin"
+            android:contentDescription="Монеты" />
+
+        <TextView
+            android:id="@+id/tvDialogOrderTotal"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:text="Итого: 0"
+            android:textColor="@color/text_primary"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="280dp"
+        android:layout_marginTop="10dp"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:id="@+id/orderDetailsItemsContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/btnDialogOrderClose"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="10dp"
+        android:gravity="center"
+        android:text="Закрыть"
+        android:textColor="@color/button_primary"
+        android:textStyle="bold"
+        android:background="@drawable/bg_feed_action_button_ripple" />
+
+</LinearLayout>

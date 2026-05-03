@@ -13,6 +13,7 @@
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingHorizontal="16dp"
+        android:background="@color/button_primary"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -21,7 +22,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Настройки"
-            android:textColor="@color/text_primary"
+            android:textColor="@android:color/white"
             android:textSize="20sp"
             android:textStyle="bold" />
     </LinearLayout>
@@ -44,10 +45,11 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Уведомления"
-                android:textColor="@color/text_primary"
+                android:text="Аккаунт"
+                android:textColor="@color/text_secondary"
                 android:textStyle="bold"
-                android:textSize="16sp" />
+                android:textAllCaps="true"
+                android:textSize="12sp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -55,88 +57,345 @@
                 android:layout_marginTop="8dp"
                 android:background="@drawable/bg_profile_card"
                 android:orientation="vertical"
-                android:padding="10dp">
+                android:padding="0dp">
 
                 <LinearLayout
+                    android:id="@+id/rowPersonalData"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:background="@drawable/bg_profile_action_row"
-                    android:paddingHorizontal="10dp"
-                    android:paddingVertical="8dp">
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="12dp">
+
+                    <FrameLayout
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/bg_profile_action_row">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_nav_profile"
+                            android:tint="@color/button_primary"
+                            android:contentDescription="@null" />
+                    </FrameLayout>
 
                     <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
                         android:layout_weight="1"
-                        android:text="Включить уведомления в приложении"
-                        android:textColor="@color/text_primary" />
+                        android:text="Личные данные"
+                        android:textColor="@color/text_primary"
+                        android:textStyle="bold" />
 
-                    <Switch
-                        android:id="@+id/swNotifications"
+                    <ImageView
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
+                        android:layout_height="wrap_content"
+                        android:src="@drawable/ic_chevron_right"
+                        android:tint="@color/text_secondary"
+                        android:contentDescription="@null" />
                 </LinearLayout>
 
                 <LinearLayout
-                    android:id="@+id/rowNotificationsSystem"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="#11000000" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="#11000000" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Приложение"
+                    android:textColor="@color/text_secondary"
+                    android:textStyle="bold"
+                    android:textAllCaps="true"
+                    android:textSize="12sp" />
+
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_profile_card"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:id="@+id/rowNotificationsSystem"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="12dp">
+
+                        <FrameLayout
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_profile_action_row">
+
+                            <ImageView
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_notifications_on"
+                                android:tint="@color/button_primary"
+                                android:contentDescription="@null" />
+                        </FrameLayout>
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:text="Уведомления"
+                            android:textColor="@color/text_primary"
+                            android:textStyle="bold" />
+
+                        <Switch
+                            android:id="@+id/swNotifications"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#11000000" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#11000000" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="12dp">
+
+                        <FrameLayout
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_profile_action_row">
+
+                            <ImageView
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_nav_home"
+                                android:tint="@color/button_primary"
+                                android:contentDescription="@null" />
+                        </FrameLayout>
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:text="Тема"
+                            android:textColor="@color/text_primary"
+                            android:textStyle="bold" />
+
+                        <RadioGroup
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+                            <RadioButton
+                                android:id="@+id/rbThemeLight"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Светлая"
+                                android:textSize="12sp" />
+                            <RadioButton
+                                android:id="@+id/rbThemeDark"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Тёмная"
+                                android:textSize="12sp" />
+                        </RadioGroup>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#11000000" />
+
+                    <LinearLayout
+                        android:id="@+id/rowApiServer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="12dp">
+
+                        <FrameLayout
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_profile_action_row">
+
+                            <ImageView
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_nav_settings"
+                                android:tint="@color/button_primary"
+                                android:contentDescription="@null" />
+                        </FrameLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Адрес API"
+                                android:textColor="@color/text_primary"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvApiServerValue"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:maxLines="1"
+                                android:text="http://10.0.2.2:5000/"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:src="@drawable/ic_chevron_right"
+                            android:tint="@color/text_secondary"
+                            android:contentDescription="Открыть" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Другое"
+                    android:textColor="@color/text_secondary"
+                    android:textStyle="bold"
+                    android:textAllCaps="true"
+                    android:textSize="12sp" />
+
+                <LinearLayout
+                    android:id="@+id/rowHelp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_profile_card"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:background="@drawable/bg_profile_action_row"
-                    android:paddingHorizontal="10dp"
-                    android:paddingVertical="10dp">
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="12dp">
+
+                    <FrameLayout
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/bg_profile_action_row">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_chevron_right"
+                            android:tint="@color/button_primary"
+                            android:rotation="90"
+                            android:contentDescription="@null" />
+                    </FrameLayout>
 
                     <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
                         android:layout_weight="1"
-                        android:text="Системные настройки уведомлений"
-                        android:textColor="@color/text_primary" />
+                        android:text="Помощь и поддержка"
+                        android:textColor="@color/text_primary"
+                        android:textStyle="bold" />
 
                     <ImageView
                         android:layout_width="16dp"
                         android:layout_height="16dp"
                         android:src="@drawable/ic_chevron_right"
                         android:tint="@color/text_secondary"
-                        android:contentDescription="Открыть" />
+                        android:contentDescription="@null" />
                 </LinearLayout>
             </LinearLayout>
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:text="Тема"
-                android:textColor="@color/text_primary"
-                android:textStyle="bold"
-                android:textSize="16sp" />
-
-            <RadioGroup
+            <LinearLayout
+                android:id="@+id/rowLogout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="18dp"
                 android:background="@drawable/bg_profile_card"
-                android:orientation="vertical"
-                android:padding="10dp">
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="12dp">
 
-                <RadioButton
-                    android:id="@+id/rbThemeLight"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Светлая"
-                    android:textColor="@color/text_primary" />
+                <FrameLayout
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="#11FF0000">
 
-                <RadioButton
-                    android:id="@+id/rbThemeDark"
-                    android:layout_width="match_parent"
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_gravity="center"
+                        android:src="@android:drawable/ic_lock_power_off"
+                        android:tint="#FFD32F2F"
+                        android:contentDescription="@null" />
+                </FrameLayout>
+
+                <TextView
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="Темная"
-                    android:textColor="@color/text_primary" />
-            </RadioGroup>
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:text="Выйти из аккаунта"
+                    android:textColor="#FFD32F2F"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:gravity="center"
+                android:text="Версия 1.0.0\n© 2026 Салаватстекло"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
         </LinearLayout>
     </ScrollView>
 
@@ -144,6 +403,7 @@
         android:id="@+id/bottomNavSettings"
         android:layout_width="0dp"
         android:layout_height="64dp"
+        android:elevation="12dp"
         android:orientation="horizontal"
         android:gravity="center"
         android:paddingHorizontal="10dp"
@@ -160,8 +420,8 @@
             android:orientation="vertical"
             android:gravity="center"
             android:paddingVertical="8dp">
-            <ImageView android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_nav_home" android:tint="@color/text_secondary" android:contentDescription="Главная" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Главная" android:textColor="@color/text_secondary" android:textSize="11sp" />
+            <ImageView android:id="@+id/navHomeIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_nav_home" android:tint="@color/text_secondary" android:contentDescription="Главная" />
+            <TextView android:id="@+id/navHomeText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:text="Главная" android:textColor="@color/text_secondary" android:textSize="10sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -198,7 +458,7 @@
                     android:background="@drawable/bg_thread_badge"
                     android:visibility="gone" />
             </FrameLayout>
-            <TextView android:id="@+id/navChatsText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Чаты" android:textColor="@color/text_secondary" android:textSize="11sp" />
+            <TextView android:id="@+id/navChatsText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:text="Чаты" android:textColor="@color/text_secondary" android:textSize="10sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -209,8 +469,8 @@
             android:orientation="vertical"
             android:gravity="center"
             android:paddingVertical="8dp">
-            <ImageView android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_nav_settings" android:tint="@color/button_primary" android:contentDescription="Настройки" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Настройки" android:textColor="@color/button_primary" android:textStyle="bold" android:textSize="11sp" />
+            <ImageView android:id="@+id/navSettingsIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_nav_settings" android:tint="@color/button_primary" android:contentDescription="Настройки" />
+            <TextView android:id="@+id/navSettingsText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:text="Настройки" android:textColor="@color/button_primary" android:textStyle="bold" android:textSize="10sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -221,8 +481,33 @@
             android:orientation="vertical"
             android:gravity="center"
             android:paddingVertical="8dp">
-            <ImageView android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_nav_profile" android:tint="@color/text_secondary" android:contentDescription="Профиль" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Профиль" android:textColor="@color/text_secondary" android:textSize="11sp" />
+            <ImageView android:id="@+id/navProfileIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_nav_profile" android:tint="@color/text_secondary" android:contentDescription="Профиль" />
+            <TextView android:id="@+id/navProfileText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:text="Профиль" android:textColor="@color/text_secondary" android:textSize="10sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/navContacts"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingVertical="8dp">
+            <ImageView
+                android:id="@+id/navContactsIcon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_nav_calendar"
+                android:tint="@color/text_secondary"
+                android:contentDescription="Магазин" />
+            <TextView
+                android:id="@+id/navContactsText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="Магазин"
+                android:textColor="@color/text_secondary"
+                android:textSize="10sp" />
         </LinearLayout>
     </LinearLayout>
 

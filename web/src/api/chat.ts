@@ -13,6 +13,7 @@ import type {
   SendMessageRequest,
   SendMessageResponse,
   ThreadsResponse,
+  EventRegistrantsSearchResponse,
   UpdateBotProfileRequest,
   UpdateBotProfileResponse,
 } from './types'
@@ -101,5 +102,12 @@ export async function uploadBotAvatar(botId: string, login: string, file: File) 
       headers: { 'Content-Type': 'multipart/form-data' },
     },
   )
+  return data
+}
+
+export async function searchEventRegistrantsMentions(q: string, take = 12) {
+  const { data } = await apiClient.get<EventRegistrantsSearchResponse>('api/post/event-registrants/search', {
+    params: { q, take },
+  })
   return data
 }

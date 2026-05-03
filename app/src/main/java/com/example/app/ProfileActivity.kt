@@ -134,7 +134,7 @@ class ProfileActivity : BaseActivity() {
         }
 
         rowCalendar.setOnClickListener {
-            safeToast("в разработке")
+            startActivity(Intent(this, CalendarActivity::class.java))
         }
         rowLogout.setOnClickListener {
             confirmLogout()
@@ -150,6 +150,10 @@ class ProfileActivity : BaseActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
         findViewById<android.view.View>(R.id.navProfile).setOnClickListener { }
+        findViewById<android.view.View>(R.id.navContacts).setOnClickListener {
+            startActivity(Intent(this, ShopActivity::class.java))
+        }
+        setBottomTab("profile")
 
         scope.launch { loadProfileFromNetwork() }
     }
@@ -183,7 +187,9 @@ class ProfileActivity : BaseActivity() {
         tvEmployeeId.text = p.employeeId
         tvPosition.text = p.position
         tvSubdivision.text = p.subdivision
-        bindLevelStrip(level = p.level, experience = p.experience, xpToNext = p.xpToNext)
+        val balance = if (p.coinBalance > 0) p.coinBalance else p.experience
+        val nextPayoutDays = if (p.nextPayoutDays >= 0) p.nextPayoutDays else p.xpToNext
+        bindLevelStrip(level = p.level, experience = balance, xpToNext = nextPayoutDays)
         val url = p.avatarUrl?.trim()
         if (!url.isNullOrEmpty()) {
             avatarView.load(url) {
@@ -196,10 +202,12 @@ class ProfileActivity : BaseActivity() {
     }
 
     private fun bindLevelStrip(level: Int, experience: Int, xpToNext: Int) {
-        tvLevelBadge.text = "Уровень $level"
-        val expInLevel = experience % 100
-        pbLevelXp.progress = expInLevel
-        tvXpHint.text = "$expInLevel / 100 опыта · ещё $xpToNext до уровня ${level + 1}"
+        val balance = experience.coerceAtLeast(0)
+        val nextPayoutDays = xpToNext.coerceAtLeast(0)
+        tvLevelBadge.text = "Ваш баланс $balance"
+        pbLevelXp.max = 100
+        pbLevelXp.progress = (100 - nextPayoutDays.coerceAtMost(100))
+        tvXpHint.text = "Следующая выдача 5 монет будет через $nextPayoutDays дней"
     }
 
     private fun formatPhoneRuDisplay(raw: String): String {
@@ -214,6 +222,7 @@ class ProfileActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        setBottomTab("profile")
         SessionManager.touch(this)
         val employeeId = authPrefs.getString("employeeId", "")?.trim().orEmpty()
         startChatsUnreadBadgeAutoRefresh(employeeId = employeeId, badgeViewId = R.id.navChatsBadge)
@@ -273,6 +282,36 @@ class ProfileActivity : BaseActivity() {
                 .setMessage(details)
                 .setPositiveButton("OK", null)
         )
+    }
+
+    private fun showContactsDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_contacts, null, false)
+        safeShowDialog(
+            AlertDialog.Builder(this)
+                .setView(view)
+                .setPositiveButton("Закрыть", null)
+        )
+    }
+
+    private fun setBottomTab(tab: String) {
+        val active = getColor(R.color.nav_active)
+        val inactive = getColor(R.color.nav_inactive)
+        fun setItem(containerId: Int, iconId: Int, textId: Int, activeTab: Boolean) {
+            val container = findViewById<android.view.View>(containerId)
+            findViewById<ImageView>(iconId).setColorFilter(if (activeTab) active else inactive)
+            val tv = findViewById<TextView>(textId)
+            tv.setTextColor(if (activeTab) active else inactive)
+            tv.setTypeface(null, if (activeTab) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            container.setBackgroundResource(
+                if (activeTab) R.drawable.bg_bottom_nav_item_active
+                else android.R.color.transparent
+            )
+        }
+        setItem(R.id.navHome, R.id.navHomeIcon, R.id.navHomeText, tab == "home")
+        setItem(R.id.navChats, R.id.navChatsIcon, R.id.navChatsText, tab == "chats")
+        setItem(R.id.navSettings, R.id.navSettingsIcon, R.id.navSettingsText, tab == "settings")
+        setItem(R.id.navProfile, R.id.navProfileIcon, R.id.navProfileText, tab == "profile")
+        setItem(R.id.navContacts, R.id.navContactsIcon, R.id.navContactsText, tab == "store")
     }
 
     private fun attachPressAnimation(v: android.view.View) {

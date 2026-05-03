@@ -13,7 +13,11 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
 import android.webkit.MimeTypeMap
+import android.widget.ListPopupWindow
+import android.widget.LinearLayout
 import coil.load
 import com.example.app.api.BotProfileItem
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -30,6 +34,8 @@ import com.example.app.api.EditMessageRequest
 import com.example.app.api.MessageItem
 import com.example.app.api.SendMessageRequest
 import com.example.app.api.UpdateBotProfileRequest
+import com.example.app.api.EventRegistrantMentionItem
+import com.example.app.api.ChatCoinsTransferRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,6 +55,8 @@ class ChatActivity : BaseActivity() {
         const val EXTRA_THREAD_IS_TECH_ADMIN = "thread_is_tech_admin"
         const val EXTRA_THREAD_BOT_ID = "thread_bot_id"
         const val EXTRA_THREAD_IS_OFFICIAL_BOT = "thread_is_official_bot"
+        const val EXTRA_THREAD_IS_ONLINE = "thread_is_online"
+        const val EXTRA_THREAD_AVATAR_URL = "thread_avatar_url"
     }
 
     private var threadId: Int = 0
@@ -58,14 +66,21 @@ class ChatActivity : BaseActivity() {
     private var threadIsTechAdmin: Boolean = false
     private var threadBotId: String = ""
     private var threadIsOfficialBot: Boolean = false
+    private var threadIsOnline: Boolean = false
     private var channelMuted: Boolean = false
     private var isTechAdminSelf: Boolean = false
     private var pendingBotAvatarPick: ((Uri) -> Unit)? = null
     private val pendingMediaUris = mutableListOf<Uri>()
+    private var sendModeActive: Boolean? = null
+    private var mentionPopup: ListPopupWindow? = null
+    private var lastMentionQuery: String = ""
+    private var mentionItems: List<EventRegistrantMentionItem> = emptyList()
 
     private lateinit var recycler: RecyclerView
     private lateinit var progress: ProgressBar
     private lateinit var empty: TextView
+    private lateinit var etMessageInput: EditText
+    private lateinit var btnSendAction: ImageButton
     private lateinit var adapter: MessagesAdapter
     private var replyTo: MessageItem? = null
     private val selectedIds = linkedSetOf<Int>()
@@ -102,11 +117,44 @@ class ChatActivity : BaseActivity() {
         threadBotId = intent.getStringExtra(EXTRA_THREAD_BOT_ID)?.trim().orEmpty()
         threadIsTechAdmin = intent.getBooleanExtra(EXTRA_THREAD_IS_TECH_ADMIN, false)
         threadIsOfficialBot = intent.getBooleanExtra(EXTRA_THREAD_IS_OFFICIAL_BOT, false)
+        threadIsOnline = intent.getBooleanExtra(EXTRA_THREAD_IS_ONLINE, false)
+        val threadAvatarUrl = intent.getStringExtra(EXTRA_THREAD_AVATAR_URL)?.trim().orEmpty()
         val titleText = buildThreadTitle(title)
         val tvTitle = findViewById<TextView>(R.id.tvChatTitle)
         tvTitle.text = titleText
+        val subtitleView = findViewById<TextView>(R.id.tvChatSubtitle)
+        subtitleView.text = when {
+            threadType.equals("channel", ignoreCase = true) -> "Канал"
+            threadType.equals("bot", ignoreCase = true) -> if (threadIsOnline) "онлайн" else "не в сети"
+            threadIsOnline -> "онлайн"
+            else -> "был(а) недавно"
+        }
+        val avatarView = findViewById<TextView>(R.id.tvChatAvatar)
+        val avatarImage = findViewById<ImageView>(R.id.ivChatAvatar)
+        val headerAvatarText = title
+            .split(" ")
+            .filter { it.isNotBlank() }
+            .take(2)
+            .joinToString("") { it.first().uppercase() }
+            .ifBlank { "Ч" }
+        avatarView.text = headerAvatarText
+        if (threadAvatarUrl.isNotBlank()) {
+            avatarImage.visibility = View.VISIBLE
+            avatarView.visibility = View.GONE
+            avatarImage.load(threadAvatarUrl) {
+                crossfade(true)
+                error(R.drawable.ic_launcher_simple)
+            }
+        } else {
+            avatarImage.visibility = View.GONE
+            avatarView.visibility = View.VISIBLE
+        }
+        val presence = findViewById<View>(R.id.vChatPresence)
+        presence.setBackgroundResource(if (threadIsOnline) R.drawable.bg_presence_online else R.drawable.bg_presence_offline)
         updateOfficialBadgeVisibility()
         findViewById<View>(R.id.btnChatBack).setOnClickListener { finish() }
+        findViewById<View>(R.id.btnChatMenu).setOnClickListener { safeToast("Меню чата") }
+        findViewById<View>(R.id.btnEmoji).setOnClickListener { safeToast("Эмодзи скоро") }
 
         val auth = getSharedPreferences("auth", MODE_PRIVATE)
         employeeId = auth.getString("employeeId", "")?.trim().orEmpty()
@@ -119,12 +167,16 @@ class ChatActivity : BaseActivity() {
         recycler = findViewById(R.id.recyclerMessages)
         progress = findViewById(R.id.messagesProgress)
         empty = findViewById(R.id.messagesEmpty)
+        etMessageInput = findViewById(R.id.etMessage)
+        btnSendAction = findViewById(R.id.btnSend)
 
         adapter = MessagesAdapter(
             selfAliases = setOf(employeeId, accountLogin)
                 .map { it.trim().lowercase() }
                 .filter { it.isNotBlank() }
                 .toSet(),
+            incomingAvatarUrl = threadAvatarUrl,
+            incomingAvatarFallback = headerAvatarText,
             onClick = { item ->
                 // Telegram-like:
                 // - if selection mode active -> toggle selection
@@ -167,22 +219,28 @@ class ChatActivity : BaseActivity() {
             val canPickApk = isTechAdminSelf &&
                 threadType.equals("bot", ignoreCase = true) &&
                 threadBotId.equals("StekloSecurity", ignoreCase = true)
-            if (canPickApk) {
-                safeShowDialog(
-                    androidx.appcompat.app.AlertDialog.Builder(this)
-                        .setTitle("Что прикрепить?")
-                        .setItems(arrayOf("Фото/видео", "APK файл")) { _, which ->
-                            if (which == 1) pickApkDocument.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream"))
-                            else pickChatMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                        }
-                        .setNegativeButton(android.R.string.cancel, null)
-                )
-            } else {
-                pickChatMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+            val canTransferCoins = threadType.equals("user", ignoreCase = true)
+            val options = mutableListOf("Фото/видео")
+            if (canPickApk) options += "APK файл"
+            if (canTransferCoins) options += "Передать коины"
+            showActionSheet(title = "Что прикрепить?", options = options) { selected ->
+                when (selected) {
+                    "Фото/видео" -> pickChatMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                    "APK файл" -> pickApkDocument.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream"))
+                    "Передать коины" -> openTransferCoinsDialog()
+                }
             }
         }
-        findViewById<View>(R.id.btnSend).setOnClickListener { trySendMessage() }
+        btnSendAction.setOnClickListener { trySendMessage() }
         findViewById<View>(R.id.btnCancelMediaDraft).setOnClickListener { setPendingMedia(emptyList()) }
+        etMessageInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                updateSendButtonState()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+        updateSendButtonState()
 
         findViewById<View>(R.id.btnCancelReply).setOnClickListener { setReplyTo(null) }
 
@@ -192,8 +250,78 @@ class ChatActivity : BaseActivity() {
         }
 
         setupChannelUi()
+        setupMentions()
 
         loadMessages()
+    }
+
+    private fun setupMentions() {
+        val et = findViewById<EditText>(R.id.etMessage)
+        val popup = ListPopupWindow(this).apply {
+            anchorView = et
+            isModal = true
+            setOnItemClickListener { _, _, position, _ ->
+                val item = mentionItems.getOrNull(position) ?: return@setOnItemClickListener
+                val text = et.text?.toString().orEmpty()
+                val at = text.lastIndexOf('@')
+                if (at < 0) return@setOnItemClickListener
+                val before = text.substring(0, at + 1)
+                val after = text.substring(at + 1)
+                val suffix = after.dropWhile { !it.isWhitespace() }
+                val next = before + item.mentionKey + suffix
+                et.setText(next)
+                et.setSelection((before.length + item.mentionKey.length).coerceAtMost(next.length))
+                dismiss()
+            }
+        }
+        mentionPopup = popup
+
+        et.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                val text = s?.toString().orEmpty()
+                val at = text.lastIndexOf('@')
+                if (at < 0) {
+                    popup.dismiss()
+                    lastMentionQuery = ""
+                    return
+                }
+                val tail = text.substring(at + 1)
+                val query = tail.takeWhile { !it.isWhitespace() }.trim()
+                if (query.length < 2) {
+                    popup.dismiss()
+                    lastMentionQuery = query
+                    return
+                }
+                if (query == lastMentionQuery) return
+                lastMentionQuery = query
+
+                scope.launch {
+                    try {
+                        val resp = withContext(Dispatchers.IO) {
+                            ApiClient.postApi.searchEventRegistrants(query = query, take = 12)
+                        }
+                        val body = resp.body()
+                        if (!resp.isSuccessful || body == null || !body.success) {
+                            popup.dismiss()
+                            return@launch
+                        }
+                        val items = body.items.orEmpty()
+                        mentionItems = items
+                        if (items.isEmpty()) {
+                            popup.dismiss()
+                            return@launch
+                        }
+                        val labels = items.map { "${it.fullName}  (@${it.mentionKey})" }
+                        popup.setAdapter(android.widget.ArrayAdapter(this@ChatActivity, android.R.layout.simple_list_item_1, labels))
+                        if (!popup.isShowing) popup.show() else popup.listView?.invalidateViews()
+                    } catch (_: Exception) {
+                        popup.dismiss()
+                    }
+                }
+            }
+        })
     }
 
     override fun onResume() {
@@ -250,34 +378,109 @@ class ChatActivity : BaseActivity() {
         options += "Выделить текст"
         if (canDelete) options += "Удалить"
 
-        safeShowDialog(
-            androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("Сообщение")
-                .setItems(options.toTypedArray()) { _, which ->
-                    when (options[which]) {
-                        "Выбрать" -> {
-                            selectedIds.add(item.id)
-                            updateSelectionUi()
-                        }
-                        "Снять выбор" -> {
-                            selectedIds.remove(item.id)
-                            updateSelectionUi()
-                        }
-                        "Ответить" -> setReplyTo(item)
-                        "Редактировать текст" -> editMessageText(item)
-                        "Копировать текст" -> copyToClipboard(item.text)
-                        "Выделить текст" -> showSelectableText(item.text)
-                        "Удалить" -> {
-                            selectedIds.clear()
-                            selectedIds.add(item.id)
-                            updateSelectionUi()
-                            deleteSelectedMessages()
-                        }
-                    }
-                    adapter.notifyDataSetChanged()
+        showActionSheet(title = "Сообщение", options = options) { selected ->
+            when (selected) {
+                "Выбрать" -> {
+                    selectedIds.add(item.id)
+                    updateSelectionUi()
                 }
-                .setNegativeButton(android.R.string.cancel, null)
-        )
+                "Снять выбор" -> {
+                    selectedIds.remove(item.id)
+                    updateSelectionUi()
+                }
+                "Ответить" -> setReplyTo(item)
+                "Редактировать текст" -> editMessageText(item)
+                "Копировать текст" -> copyToClipboard(item.text)
+                "Выделить текст" -> showSelectableText(item.text)
+                "Удалить" -> {
+                    selectedIds.clear()
+                    selectedIds.add(item.id)
+                    updateSelectionUi()
+                    deleteSelectedMessages()
+                }
+                    }
+            adapter.notifyDataSetChanged()
+        }
+    }
+
+    private fun showActionSheet(
+        title: String,
+        options: List<String>,
+        onSelect: (String) -> Unit
+    ) {
+        val view = layoutInflater.inflate(R.layout.dialog_chat_action_sheet, null, false)
+        val titleView = view.findViewById<TextView>(R.id.tvActionSheetTitle)
+        val container = view.findViewById<LinearLayout>(R.id.actionSheetItemsContainer)
+        val cancel = view.findViewById<View>(R.id.btnActionSheetCancel)
+        titleView.text = title
+
+        val dialog = safeShowDialog(
+            androidx.appcompat.app.AlertDialog.Builder(this).setView(view)
+        ) ?: return
+
+        options.forEach { option ->
+            val row = LinearLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dpToPx(46)
+                ).also { lp -> lp.topMargin = dpToPx(6) }
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(dpToPx(12), 0, dpToPx(12), 0)
+                setBackgroundResource(R.drawable.bg_chat_action_item)
+                setOnClickListener {
+                    dialog.dismiss()
+                    onSelect(option)
+                }
+            }
+            val icon = ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dpToPx(18), dpToPx(18))
+                setImageResource(resolveActionIcon(title, option))
+            }
+            val label = TextView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f
+                ).also { lp -> lp.marginStart = dpToPx(10) }
+                text = option
+                textSize = 15f
+                setTextColor(
+                    getColor(
+                        if (option == "Удалить") android.R.color.holo_red_dark else R.color.text_primary
+                    )
+                )
+            }
+            row.addView(icon)
+            row.addView(label)
+            container.addView(row)
+        }
+
+        cancel.setOnClickListener { dialog.dismiss() }
+    }
+
+    private fun dpToPx(dp: Int): Int =
+        (dp * resources.displayMetrics.density).toInt()
+
+    private fun resolveActionIcon(sheetTitle: String, option: String): Int {
+        return if (sheetTitle == "Что прикрепить?") {
+            when (option) {
+                "Фото/видео" -> R.drawable.ic_chat_sheet_gallery
+                "APK файл" -> R.drawable.ic_chat_sheet_apk
+                "Передать коины" -> R.drawable.ic_chat_sheet_coins
+                else -> R.drawable.ic_chat_sheet_select
+            }
+        } else {
+            when (option) {
+                "Выбрать", "Снять выбор" -> R.drawable.ic_chat_sheet_select
+                "Ответить" -> R.drawable.ic_chat_sheet_reply
+                "Редактировать текст" -> R.drawable.ic_chat_sheet_edit
+                "Копировать текст" -> R.drawable.ic_chat_sheet_copy
+                "Выделить текст" -> R.drawable.ic_chat_sheet_text
+                "Удалить" -> R.drawable.ic_chat_sheet_delete
+                else -> R.drawable.ic_chat_sheet_select
+            }
+        }
     }
 
     private fun editMessageText(item: MessageItem) {
@@ -574,8 +777,7 @@ class ChatActivity : BaseActivity() {
                     }
                     uploaded += upBody.url to kind
                 }
-                val et = findViewById<EditText>(R.id.etMessage)
-                val caption = et.text?.toString()?.trim().orEmpty()
+                val caption = etMessageInput.text?.toString()?.trim().orEmpty()
                 val meta = buildMessageMetaJson(reply = replyTo, media = uploaded)
                 val send = withContext(Dispatchers.IO) {
                     ApiClient.chatApi.sendMessage(
@@ -588,7 +790,7 @@ class ChatActivity : BaseActivity() {
                     safeToast(sendBody?.message ?: getString(R.string.error_network), long = true)
                     return@launch
                 }
-                et.setText("")
+                etMessageInput.setText("")
                 setReplyTo(null)
                 setPendingMedia(emptyList())
                 loadMessages(silent = true)
@@ -598,6 +800,7 @@ class ChatActivity : BaseActivity() {
                 tempFiles.forEach { runCatching { it.delete() } }
                 btnSend.isEnabled = true
                 btnAttach.isEnabled = true
+                updateSendButtonState()
             }
         }
     }
@@ -607,8 +810,7 @@ class ChatActivity : BaseActivity() {
             uploadAndSendChatMedia(pendingMediaUris.toList())
             return
         }
-        val et = findViewById<EditText>(R.id.etMessage)
-        val text = et.text?.toString()?.trim().orEmpty()
+        val text = etMessageInput.text?.toString()?.trim().orEmpty()
         if (text.isBlank()) return
 
         val btnSend = findViewById<ImageButton>(R.id.btnSend)
@@ -630,7 +832,7 @@ class ChatActivity : BaseActivity() {
                     safeToast(body?.message ?: getString(R.string.error_network), long = true)
                     return@launch
                 }
-                et.setText("")
+                etMessageInput.setText("")
                 setReplyTo(null)
                 loadMessages(silent = true)
             } catch (e: Exception) {
@@ -638,6 +840,75 @@ class ChatActivity : BaseActivity() {
             } finally {
                 btnSend.isEnabled = true
                 btnAttach.isEnabled = true
+                updateSendButtonState()
+            }
+        }
+    }
+
+    private fun openTransferCoinsDialog() {
+        if (!threadType.equals("user", ignoreCase = true)) {
+            safeToast("Передача коинов доступна только в личном чате", long = true)
+            return
+        }
+        val view = layoutInflater.inflate(R.layout.dialog_transfer_coins, null, false)
+        val etAmount = view.findViewById<EditText>(R.id.etTransferCoinsAmount)
+        val etComment = view.findViewById<EditText>(R.id.etTransferCoinsComment)
+        val btnCancel = view.findViewById<TextView>(R.id.btnTransferCoinsCancel)
+        val btnSubmit = view.findViewById<TextView>(R.id.btnTransferCoinsSubmit)
+
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setView(view)
+            .create()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.window?.setLayout(
+            android.view.WindowManager.LayoutParams.MATCH_PARENT,
+            android.view.WindowManager.LayoutParams.WRAP_CONTENT
+        )
+        dialog.window?.setGravity(android.view.Gravity.BOTTOM)
+
+        btnCancel.setOnClickListener { dialog.dismiss() }
+        btnSubmit.setOnClickListener {
+            val amount = etAmount.text?.toString()?.trim()?.toIntOrNull() ?: 0
+            val comment = etComment.text?.toString()?.trim().orEmpty().ifBlank { null }
+            if (amount <= 0) {
+                safeToast("Укажите корректную сумму", long = true)
+                return@setOnClickListener
+            }
+            dialog.dismiss()
+            transferCoins(amount, comment)
+        }
+
+        if (!canShowUi()) return
+        try {
+            dialog.show()
+        } catch (_: android.view.WindowManager.BadTokenException) {
+            // ignore: activity is not in valid window state
+        }
+    }
+
+    private fun transferCoins(amount: Int, comment: String?) {
+        if (threadId <= 0 || employeeId.isBlank()) return
+        scope.launch {
+            try {
+                val resp = withContext(Dispatchers.IO) {
+                    ApiClient.chatApi.transferCoins(
+                        threadId = threadId,
+                        body = ChatCoinsTransferRequest(
+                            login = employeeId,
+                            amount = amount,
+                            comment = comment
+                        )
+                    )
+                }
+                val body = resp.body()
+                if (!resp.isSuccessful || body == null || !body.success || body.item == null) {
+                    safeToast(body?.message ?: getString(R.string.error_network), long = true)
+                    return@launch
+                }
+                safeToast("Коины переданы")
+                loadMessages(silent = true)
+            } catch (e: Exception) {
+                safeToast("${getString(R.string.error_network)} ${e.message}", long = true)
             }
         }
     }
@@ -875,6 +1146,7 @@ class ChatActivity : BaseActivity() {
             preview.visibility = View.GONE
             thumb.setImageDrawable(null)
             label.text = ""
+            updateSendButtonState()
             return
         }
         val uri = pendingMediaUris.first()
@@ -901,6 +1173,28 @@ class ChatActivity : BaseActivity() {
             }
         }
         preview.visibility = View.VISIBLE
+        updateSendButtonState()
+    }
+
+    private fun updateSendButtonState() {
+        if (!::btnSendAction.isInitialized || !::etMessageInput.isInitialized) return
+        val hasText = etMessageInput.text?.toString()?.trim().orEmpty().isNotBlank()
+        val hasMedia = pendingMediaUris.isNotEmpty()
+        val sendMode = hasText || hasMedia
+        if (sendModeActive == sendMode) return
+        sendModeActive = sendMode
+        btnSendAction.setImageResource(if (sendMode) R.drawable.ic_send else android.R.drawable.ic_btn_speak_now)
+        btnSendAction.contentDescription = if (sendMode) "Отправить" else "Голос"
+        btnSendAction.animate().cancel()
+        btnSendAction.scaleX = 0.84f
+        btnSendAction.scaleY = 0.84f
+        btnSendAction.alpha = 0.72f
+        btnSendAction.animate()
+            .scaleX(1f)
+            .scaleY(1f)
+            .alpha(1f)
+            .setDuration(150L)
+            .start()
     }
 
     private fun isVideoUri(uri: Uri): Boolean {

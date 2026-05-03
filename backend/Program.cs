@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using EmployeeApi.Services;
 using EmployeeApi.Hubs;
+using EmployeeApi.Services.Coins;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseWebRoot("wwwroot");
@@ -12,6 +13,8 @@ builder.WebHost.UseWebRoot("wwwroot");
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<ChatMessageCipher>();
+builder.Services.AddSingleton<ICoinsService, SqlCoinsService>();
+builder.Services.AddHostedService<PostEventCoinsGrantHostedService>();
 builder.Services.AddHostedService<ServerDiagnosticsLifetimeHostedService>();
 builder.Services.AddCors(options =>
 {

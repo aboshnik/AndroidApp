@@ -20,5 +20,15 @@
         <item name="android:weekDayTextAppearance">@style/AppCalendarWeekDayText</item>
         <item name="android:dateTextAppearance">@style/AppCalendarDateText</item>
     </style>
+
+    <style name="AppDialogAnimation" parent="@android:style/Animation.Dialog">
+        <item name="android:windowEnterAnimation">@anim/sheet_slide_in_up</item>
+        <item name="android:windowExitAnimation">@anim/sheet_slide_out_down</item>
+    </style>
+
+    <style name="AppPollDialogAnimation" parent="@android:style/Animation.Dialog">
+        <item name="android:windowEnterAnimation">@anim/poll_dialog_in</item>
+        <item name="android:windowExitAnimation">@anim/poll_dialog_out</item>
+    </style>
 </resources>
 

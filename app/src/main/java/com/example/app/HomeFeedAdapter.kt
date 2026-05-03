@@ -1,11 +1,13 @@
 package com.example.app
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -19,6 +21,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.example.app.api.PollItem
 import com.example.app.api.PostItem
+import com.example.app.api.EventRegistrationItem
 import coil.load
 import coil.request.videoFrameMillis
 import java.time.LocalDate
@@ -32,7 +35,9 @@ import java.util.Locale
 class HomeFeedAdapter(
     private val canDeletePosts: Boolean,
     private val onDeletePost: (PostItem) -> Unit,
-    private val onVote: (postId: Int, optionId: Int, onDone: (PollItem?) -> Unit) -> Unit
+    private val onVote: (postId: Int, optionId: Int, onDone: (PollItem?) -> Unit) -> Unit,
+    private val onRegisterEvent: (postId: Int) -> Unit,
+    private val currentLogin: String
 ) : ListAdapter<PostItem, HomeFeedAdapter.VH>(Diff()) {
     private val mediaStartByPostId = mutableMapOf<Int, Int>()
     private data class VoteEntry(
@@ -43,14 +48,14 @@ class HomeFeedAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val v = LayoutInflater.from(parent.context).inflate(R.layout.item_home_post, parent, false)
-        return VH(v, canDeletePosts, onDeletePost, onVote, mediaStartByPostId) { postId ->
+        return VH(v, canDeletePosts, onDeletePost, onVote, onRegisterEvent, currentLogin, mediaStartByPostId) { postId ->
             val idx = currentList.indexOfFirst { it.id == postId }
             if (idx >= 0) notifyItemChanged(idx)
         }
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
-        holder.bind(getItem(position))
+        holder.bind(getItem(position), position)
     }
 
     class VH(
@@ -58,12 +63,15 @@ class HomeFeedAdapter(
         private val canDeletePosts: Boolean,
         private val onDeletePost: (PostItem) -> Unit,
         private val onVote: (postId: Int, optionId: Int, onDone: (PollItem?) -> Unit) -> Unit,
+        private val onRegisterEvent: (postId: Int) -> Unit,
+        private val currentLogin: String,
         private val mediaStartByPostId: MutableMap<Int, Int>,
         private val refreshPost: (postId: Int) -> Unit
     ) : RecyclerView.ViewHolder(itemView) {
         private val tvTitle: TextView = itemView.findViewById(R.id.tvPostTitle)
         private val tvText: TextView = itemView.findViewById(R.id.tvPostText)
         private val tvMeta: TextView = itemView.findViewById(R.id.tvPostMeta)
+        private val tvHeroBadge: TextView = itemView.findViewById(R.id.tvPostHeroBadge)
         private val tvImportant: TextView = itemView.findViewById(R.id.tvPostImportant)
         private val mediaContainer: View = itemView.findViewById(R.id.postMediaContainer)
         private val mediaTop: ImageView = itemView.findViewById(R.id.postMediaTop)
@@ -78,33 +86,81 @@ class HomeFeedAdapter(
         private val btnDeletePost: ImageView = itemView.findViewById(R.id.btnDeletePost)
         private val btnPostDetails: TextView = itemView.findViewById(R.id.btnPostDetails)
         private val btnPostPoll: TextView = itemView.findViewById(R.id.btnPostPoll)
+        private val btnPostRegisterEvent: TextView = itemView.findViewById(R.id.btnPostRegisterEvent)
+        private val btnPostEventRegistrations: TextView = itemView.findViewById(R.id.btnPostEventRegistrations)
         private val postCardContent: LinearLayout = itemView.findViewById(R.id.postCardContent)
         private val postCardHeader: LinearLayout = itemView.findViewById(R.id.postCardHeader)
         private val postCardBottomBlock: LinearLayout = itemView.findViewById(R.id.postCardBottomBlock)
+        private val postCardRoot: FrameLayout = itemView.findViewById(R.id.postCardRoot)
+        private val mediaTopFrame: FrameLayout = itemView.findViewById(R.id.postMediaTopFrame)
 
-        fun bind(item: PostItem) {
+        fun bind(item: PostItem, position: Int) {
+            val isHero = position == 0
+            applyCardMode(isHero)
             val deleteReserveEnd =
                 if (canDeletePosts) (44 * itemView.resources.displayMetrics.density).toInt() else 0
             postCardContent.setPaddingRelative(0, 0, 0, 0)
             postCardHeader.setPaddingRelative(0, 0, deleteReserveEnd, 0)
             postCardBottomBlock.setPaddingRelative(0, 0, deleteReserveEnd, 0)
 
-            tvTitle.visibility = View.GONE
-            tvText.text = item.content.trim().ifBlank { "Без текста" }
-            tvMeta.text = formatDate(item.createdAt)
+            val raw = item.content.trim()
+            val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+            val derivedTitle = lines.firstOrNull().orEmpty()
+            val title = when {
+                derivedTitle.length > 80 -> derivedTitle.take(80).trimEnd() + "…"
+                derivedTitle.isNotBlank() -> derivedTitle
+                else -> "Новость"
+            }
+            val body = when {
+                lines.size <= 1 -> raw.ifBlank { "Без текста" }
+                else -> lines.drop(1).joinToString("\n")
+            }.ifBlank { "Без текста" }
+
+            tvTitle.visibility = View.VISIBLE
+            tvTitle.text = title
+            tvText.text = body
+            tvMeta.text = buildString {
+                append(item.authorName.ifBlank { item.authorLogin })
+                append(" · ")
+                append(formatDate(item.createdAt))
+            }
             tvImportant.visibility = if (item.isImportant) View.VISIBLE else View.GONE
             bindMedia(item)
             tvPollBadge.visibility = if (item.poll != null) View.VISIBLE else View.GONE
 
             val mediaUrls = collectMediaUrls(item)
-            val hasLongText = item.content.trim().length > 180
+            val hasLongText = body.length > 180
             btnPostDetails.visibility =
                 if (hasLongText || mediaUrls.isNotEmpty()) View.VISIBLE else View.GONE
+            if (isHero) {
+                btnPostDetails.visibility = View.VISIBLE
+                btnPostDetails.text = "Читать полностью"
+            } else {
+                btnPostDetails.text = "Подробнее"
+            }
             btnPostDetails.setOnClickListener { showPostDetailsDialog(item) }
 
             btnPostPoll.visibility = if (item.poll != null) View.VISIBLE else View.GONE
             btnPostPoll.setOnClickListener {
                 item.poll?.let { poll -> showPollDialog(item, poll) }
+            }
+
+            val isAuthor = currentLogin.isNotBlank() && item.authorLogin.equals(currentLogin, ignoreCase = true)
+            val canRegister = item.isEvent
+            btnPostRegisterEvent.visibility = if (canRegister) View.VISIBLE else View.GONE
+            btnPostRegisterEvent.text = if (item.isRegistered) "Вы зарегистрированы" else "Зарегистрироваться"
+            btnPostRegisterEvent.isEnabled = !item.isRegistered
+            btnPostRegisterEvent.alpha = if (item.isRegistered) 0.6f else 1f
+            btnPostRegisterEvent.setOnClickListener {
+                if (!item.isRegistered) onRegisterEvent(item.id)
+            }
+
+            val regs = item.eventRegistrations.orEmpty()
+            val canViewRegs = item.isEvent && isAuthor
+            btnPostEventRegistrations.visibility = if (canViewRegs) View.VISIBLE else View.GONE
+            btnPostEventRegistrations.text = "Участники"
+            btnPostEventRegistrations.setOnClickListener {
+                showEventRegistrationsDialog(regs)
             }
 
             btnDeletePost.visibility = if (canDeletePosts) View.VISIBLE else View.GONE
@@ -116,6 +172,36 @@ class HomeFeedAdapter(
                     .setNegativeButton(android.R.string.cancel, null)
                     .show()
             }
+        }
+
+        private fun applyCardMode(isHero: Boolean) {
+            val density = itemView.resources.displayMetrics.density
+            val topMargin = if (isHero) 4 else 12
+            val sidePadding = if (isHero) 14 else 12
+            val mediaHeight = if (isHero) 220 else 180
+
+            (postCardRoot.layoutParams as? RecyclerView.LayoutParams)?.let { lp ->
+                lp.topMargin = (topMargin * density).toInt()
+                postCardRoot.layoutParams = lp
+            }
+            postCardRoot.setPadding(
+                (sidePadding * density).toInt(),
+                (sidePadding * density).toInt(),
+                (sidePadding * density).toInt(),
+                (sidePadding * density).toInt()
+            )
+            postCardRoot.setBackgroundResource(
+                if (isHero) R.drawable.bg_home_post_hero else R.drawable.bg_home_announcement
+            )
+            (mediaTopFrame.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
+                lp.height = (mediaHeight * density).toInt()
+                mediaTopFrame.layoutParams = lp
+            }
+            tvTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isHero) 18f else 16f)
+            tvText.maxLines = if (isHero) 5 else 3
+            tvText.ellipsize = android.text.TextUtils.TruncateAt.END
+            tvMeta.alpha = if (isHero) 0.95f else 0.82f
+            tvHeroBadge.visibility = if (isHero) View.VISIBLE else View.GONE
         }
 
         private fun collectMediaUrls(item: PostItem): List<String> =
@@ -290,57 +376,67 @@ class HomeFeedAdapter(
 
         private fun showPollDialog(post: PostItem, poll: PollItem) {
             val ctx = itemView.context
-            val root = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(28, 22, 28, 10)
-            }
-            val title = TextView(ctx).apply {
-                text = poll.question
-                textSize = 18f
-                setTextColor(ctx.getColor(R.color.text_primary))
-                setTypeface(null, android.graphics.Typeface.BOLD)
-            }
-            root.addView(title)
+            val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_poll_view, null, false)
+            val tvTitle = view.findViewById<TextView>(R.id.tvPollTitle)
+            val tvDescription = view.findViewById<TextView>(R.id.tvPollDescription)
+            val optionsContainer = view.findViewById<LinearLayout>(R.id.pollOptionsContainer)
+            val btnViewVotes = view.findViewById<TextView>(R.id.btnViewVotes)
+            val btnClose = view.findViewById<TextView>(R.id.btnClosePollDialog)
 
-            if (!poll.description.isNullOrBlank()) {
-                root.addView(TextView(ctx).apply {
-                    text = poll.description
-                    setTextColor(ctx.getColor(R.color.text_secondary))
-                    textSize = 13f
-                    setPadding(0, 6, 0, 10)
-                })
+            tvTitle.text = poll.question
+            if (poll.description.isNullOrBlank()) {
+                tvDescription.visibility = View.GONE
+            } else {
+                tvDescription.visibility = View.VISIBLE
+                tvDescription.text = poll.description
             }
+            btnViewVotes.text = "Кто проголосовал (${poll.totalVotes})"
 
             val total = if (poll.totalVotes <= 0) 1 else poll.totalVotes
             val canVote = !poll.hasVoted || poll.allowRevote
             var pollDialog: AlertDialog? = null
+            val density = ctx.resources.displayMetrics.density
+
+            optionsContainer.removeAllViews()
             for (opt in poll.options) {
                 val row = LinearLayout(ctx).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding(0, 8, 0, 8)
+                    setBackgroundResource(R.drawable.bg_poll_option)
+                    val hPad = (12 * density).toInt()
+                    val vPad = (10 * density).toInt()
+                    setPadding(hPad, vPad, hPad, vPad)
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = (8 * density).toInt() }
+                    isClickable = canVote
+                    isFocusable = canVote
                 }
                 val pct = ((opt.votesCount * 100f) / total).toInt()
-                val line1 = TextView(ctx).apply {
+                val titleLine = TextView(ctx).apply {
                     text = buildString {
-                        append("$pct% ${opt.text}")
+                        append(opt.text)
                         if (poll.selectedOptionId == opt.id) append("  ✓")
                     }
                     setTextColor(ctx.getColor(R.color.text_primary))
-                    textSize = 15f
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                }
+                val metaLine = TextView(ctx).apply {
+                    text = "$pct% · ${opt.votesCount}"
+                    setTextColor(ctx.getColor(R.color.text_secondary))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    setPadding(0, (2 * density).toInt(), 0, (6 * density).toInt())
                 }
                 val progress = ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal).apply {
                     max = 100
                     progress = pct
+                    progressTintList = ColorStateList.valueOf(ctx.getColor(R.color.button_primary))
+                    progressBackgroundTintList = ColorStateList.valueOf(0x1A196C7F)
                 }
-                val line2 = TextView(ctx).apply {
-                    text = "${opt.votesCount}"
-                    setTextColor(ctx.getColor(R.color.text_secondary))
-                    textSize = 12f
-                    setPadding(0, 2, 0, 0)
-                }
-                row.addView(line1)
+                row.addView(titleLine)
+                row.addView(metaLine)
                 row.addView(progress)
-                row.addView(line2)
                 if (canVote) {
                     row.setOnClickListener {
                         onVote(post.id, opt.id) { updatedPoll ->
@@ -350,25 +446,22 @@ class HomeFeedAdapter(
                         }
                     }
                 }
-                root.addView(row)
+                optionsContainer.addView(row)
             }
 
-            val footer = TextView(ctx).apply {
-                text = "View Votes (${poll.totalVotes})"
-                textSize = 14f
-                setTextColor(ctx.getColor(R.color.button_primary))
-                setPadding(0, 8, 0, 4)
-                gravity = android.view.Gravity.CENTER_HORIZONTAL
-            }
-            footer.setOnClickListener {
-                showVotesDialog(poll)
-            }
-            root.addView(footer)
+            btnViewVotes.setOnClickListener { showVotesDialog(poll) }
 
             pollDialog = AlertDialog.Builder(ctx)
-                .setView(root)
-                .setNegativeButton("Закрыть", null)
-                .show()
+                .setView(view)
+                .create()
+            btnClose.setOnClickListener { pollDialog.dismiss() }
+            pollDialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+            pollDialog.window?.setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT
+            )
+            pollDialog.window?.setGravity(Gravity.BOTTOM)
+            pollDialog.show()
         }
 
         private fun showVotesDialog(poll: PollItem) {
@@ -406,6 +499,24 @@ class HomeFeedAdapter(
             recycler.adapter = VoteEntriesAdapter(entries)
             AlertDialog.Builder(ctx)
                 .setTitle("Кто проголосовал (${entries.size})")
+                .setView(view)
+                .setPositiveButton("OK", null)
+                .show()
+        }
+
+        private fun showEventRegistrationsDialog(registrations: List<EventRegistrationItem>) {
+            val ctx = itemView.context
+            if (registrations.isEmpty()) {
+                Toast.makeText(ctx, "Пока никто не зарегистрировался", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_poll_votes, null, false)
+            val recycler = view.findViewById<RecyclerView>(R.id.recyclerVotes)
+            recycler.layoutManager = LinearLayoutManager(ctx)
+            val entries = registrations.map { VoteEntry(login = it.name.ifBlank { it.login }, avatarUrl = it.avatarUrl, optionText = "Зарегистрирован") }
+            recycler.adapter = VoteEntriesAdapter(entries)
+            AlertDialog.Builder(ctx)
+                .setTitle("Кто зарегистрировался (${entries.size})")
                 .setView(view)
                 .setPositiveButton("OK", null)
                 .show()
@@ -455,6 +566,7 @@ class HomeFeedAdapter(
         override fun areContentsTheSame(oldItem: PostItem, newItem: PostItem) = oldItem == newItem
     }
 
-    fun submit(items: List<PostItem>) = submitList(items)
+    fun submit(items: List<PostItem>, onDone: (() -> Unit)? = null) =
+        submitList(items) { onDone?.invoke() }
 }
 

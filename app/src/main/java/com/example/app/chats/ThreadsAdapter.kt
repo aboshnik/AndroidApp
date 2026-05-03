@@ -88,6 +88,9 @@ class ThreadsAdapter(
         private val time: TextView = itemView.findViewById(R.id.tvThreadTime)
         private val outgoingCheck: ImageView = itemView.findViewById(R.id.ivThreadOutgoingCheck)
         private val badge: TextView = itemView.findViewById(R.id.tvThreadBadge)
+        private val metaBadge: TextView = itemView.findViewById(R.id.tvThreadMetaBadge)
+        private val soundBadge: ImageView = itemView.findViewById(R.id.ivThreadSoundBadge)
+        private val pinBadge: ImageView = itemView.findViewById(R.id.ivThreadPinBadge)
         private val officialBadge: ImageView = itemView.findViewById(R.id.ivThreadOfficialBadge)
         private val techBadge: ImageView = itemView.findViewById(R.id.ivThreadTechBadge)
 
@@ -99,11 +102,16 @@ class ThreadsAdapter(
             onLongClick: () -> Boolean
         ) {
             val official = item.type.equals("bot", ignoreCase = true) && item.isOfficialBot
+            val isChannel = item.type.equals("channel", ignoreCase = true)
+            val isBot = item.type.equals("bot", ignoreCase = true)
             title.text = item.title.ifBlank { "Диалог" }
             officialBadge.visibility = if (official) View.VISIBLE else View.GONE
             techBadge.visibility = if (item.isTechAdmin) View.VISIBLE else View.GONE
+            // Best-effort parity with web reference using current API fields.
+            soundBadge.visibility = if (isChannel) View.VISIBLE else View.GONE
+            pinBadge.visibility = if (official) View.VISIBLE else View.GONE
             subtitle.text = item.lastMessageText?.trim().orEmpty().ifBlank {
-                if (item.type.equals("channel", ignoreCase = true)) "Канал" else " "
+                if (isChannel) "Канал" else " "
             }
             avatar.text = buildAvatarText(item)
             bindAvatar(item)
@@ -134,6 +142,17 @@ class ThreadsAdapter(
             } else {
                 badge.visibility = View.GONE
             }
+            val meta = when {
+                isChannel -> "CHAN"
+                isBot -> "BOT"
+                else -> ""
+            }
+            if (meta.isBlank()) {
+                metaBadge.visibility = View.GONE
+            } else {
+                metaBadge.text = meta
+                metaBadge.visibility = View.VISIBLE
+            }
 
             val ctx = itemView.context
             if (selectionMode && selected) {
@@ -162,7 +181,7 @@ class ThreadsAdapter(
 
         private fun bindAvatar(item: ThreadItem) {
             val url = item.avatarUrl?.trim().orEmpty()
-            if (item.type.equals("bot", ignoreCase = true) && url.isNotBlank()) {
+            if (url.isNotBlank()) {
                 avatar.visibility = View.GONE
                 avatarImage.visibility = View.VISIBLE
                 avatarImage.load(url) {

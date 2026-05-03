@@ -1,15 +1,110 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { deletePost, getFeed, votePost } from '../../api/post'
+import { deletePost, getFeed, registerEvent, votePost } from '../../api/post'
 import { getSession } from '../../shared/session'
 import type { PollItem, PostItem } from '../../api/types'
 import { formatHm } from '../../shared/time'
+import { resolveAssetUrl } from '../../shared/urls'
+
+function detectMimeFromBytes(bytes: Uint8Array): string | null {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png'
+  if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif'
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return 'image/webp'
+  }
+  if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+    const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]).toLowerCase()
+    if (brand.startsWith('heic') || brand.startsWith('heif') || brand.startsWith('mif1') || brand.startsWith('msf1')) {
+      return 'image/heic'
+    }
+    if (brand.startsWith('qt')) return 'video/quicktime'
+    return 'video/mp4'
+  }
+  return null
+}
+
+function MediaAsset({ url }: { url: string }) {
+  const resolvedUrl = url.startsWith('/uploads/') ? `${window.location.origin}${url}` : url
+  const normalized = resolvedUrl.split('?')[0].toLowerCase()
+  const isBin = normalized.endsWith('.bin')
+  const [src, setSrc] = useState(resolvedUrl)
+  const [kind, setKind] = useState<'image' | 'video' | 'file'>(() => {
+    return ['.mp4', '.mov', '.m4v', '.webm', '.ogg', '.ogv', '.avi', '.3gp', '.mkv'].some((ext) => normalized.endsWith(ext))
+      ? 'video'
+      : 'image'
+  })
+  const [visible, setVisible] = useState(true)
+
+  useEffect(() => {
+    let revokedUrl: string | null = null
+    let cancelled = false
+    setSrc(isBin ? '' : resolvedUrl)
+    setVisible(true)
+    if (!isBin) return () => {}
+
+    void (async () => {
+      try {
+        const response = await fetch(resolvedUrl)
+        if (!response.ok) return
+        const buffer = await response.arrayBuffer()
+        if (cancelled) return
+        const bytes = new Uint8Array(buffer)
+        const detected = detectMimeFromBytes(bytes)
+        const mime = detected || 'application/octet-stream'
+        const blob = new Blob([buffer], { type: mime })
+        revokedUrl = URL.createObjectURL(blob)
+        if (mime.startsWith('video/')) setKind('video')
+        else if (mime.startsWith('image/')) setKind('image')
+        else setKind('file')
+        setSrc(revokedUrl)
+      } catch {
+        // Keep original URL fallback for .bin if blob decode fails.
+        setSrc(resolvedUrl)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      if (revokedUrl) URL.revokeObjectURL(revokedUrl)
+    }
+  }, [resolvedUrl, isBin])
+
+  if (!visible) return null
+  if (!src) return null
+  if (kind === 'video') {
+    return (
+      <video className="post-media" controls playsInline preload="metadata">
+        <source src={src} />
+      </video>
+    )
+  }
+  if (kind === 'file') {
+    return (
+      <a href={src} target="_blank" rel="noreferrer" className="muted">
+        Открыть медиа
+      </a>
+    )
+  }
+  return <img src={src} alt="" className="post-media" onError={() => setVisible(false)} />
+}
 
 export function HomePage() {
   const navigate = useNavigate()
   const location = useLocation()
   const basePath = location.pathname.startsWith('/iphone') ? '/iphone' : ''
+  const isIphonePreview = basePath === '/iphone'
   const session = getSession()
   if (!session) return null
   const login = session.login
@@ -46,13 +141,28 @@ export function HomePage() {
       void feedQuery.refetch()
     },
   })
+  const registerEventMutation = useMutation({
+    mutationFn: async (postId: number) => {
+      const resp = await registerEvent(postId, { login })
+      if (!resp.success) throw new Error(resp.message || 'Не удалось зарегистрироваться')
+      return resp
+    },
+    onSuccess: (resp) => {
+      window.alert(resp.message || 'Регистрация выполнена')
+      void feedQuery.refetch()
+    },
+    onError: (e) => {
+      window.alert(e instanceof Error ? e.message : 'Ошибка регистрации')
+    },
+  })
 
   const posts = useMemo(() => feedQuery.data?.posts ?? [], [feedQuery.data?.posts])
 
   function mediaOf(post: PostItem): string[] {
-    const list = post.mediaUrls?.filter(Boolean) ?? []
+    const list = post.mediaUrls?.map((v) => resolveAssetUrl(v)).filter(Boolean) ?? []
     if (list.length > 0) return list
-    return post.imageUrl ? [post.imageUrl] : []
+    const single = resolveAssetUrl(post.imageUrl)
+    return single ? [single] : []
   }
 
   function getDisplayPostText(post: PostItem): string {
@@ -71,6 +181,17 @@ export function HomePage() {
     }
 
     return source
+  }
+
+  function getPreviewPostText(post: PostItem): string {
+    const source = getDisplayPostText(post)
+    const collapsed = source.replace(/\s+/g, ' ').trim()
+    if (!isIphonePreview || collapsed.length <= 230) return source
+    return `${collapsed.slice(0, 230).trimEnd()}...`
+  }
+
+  function renderMedia(url: string) {
+    return <MediaAsset key={url} url={url} />
   }
 
   function renderPoll(post: PostItem, poll: PollItem) {
@@ -124,12 +245,19 @@ export function HomePage() {
               <span className="muted">{formatHm(post.createdAt)}</span>
             </div>
             {post.isImportant ? <span className="post-important">Важно</span> : null}
-            <p className="post-text">{getDisplayPostText(post)}</p>
-            {mediaOf(post).slice(0, 1).map((url) => (
-              <img key={url} src={url} alt="post media" className="post-media" />
-            ))}
+            <p className={`post-text ${isIphonePreview ? 'post-text-preview' : ''}`}>{getPreviewPostText(post)}</p>
+            {mediaOf(post).slice(0, 1).map((url) => renderMedia(url))}
             {post.poll ? renderPoll(post, post.poll) : null}
             <div className="post-actions">
+              {post.isEvent ? (
+                <button
+                  type="button"
+                  disabled={!!post.isRegistered || registerEventMutation.isPending}
+                  onClick={() => registerEventMutation.mutate(post.id)}
+                >
+                  {post.isRegistered ? 'Вы зарегистрированы' : registerEventMutation.isPending ? 'Регистрация...' : 'Зарегистрироваться'}
+                </button>
+              ) : null}
               <button type="button" onClick={() => setDetailsPost(post)}>
                 Подробнее
               </button>
@@ -158,10 +286,8 @@ export function HomePage() {
         <div className="overlay" onClick={() => setDetailsPost(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <h3>Подробнее</h3>
-            <p>{getDisplayPostText(detailsPost)}</p>
-            {mediaOf(detailsPost).map((url) => (
-              <img key={url} src={url} alt="post media" className="post-media" />
-            ))}
+            <p className="post-text">{getDisplayPostText(detailsPost)}</p>
+            {mediaOf(detailsPost).map((url) => renderMedia(url))}
             <button type="button" onClick={() => setDetailsPost(null)}>
               Закрыть
             </button>

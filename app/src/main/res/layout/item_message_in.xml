@@ -2,15 +2,44 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
+    android:orientation="horizontal"
+    android:gravity="bottom"
     android:paddingTop="6dp"
     android:paddingBottom="6dp">
+
+    <FrameLayout
+        android:id="@+id/incomingAvatar"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_marginEnd="6dp"
+        android:background="@drawable/bg_chat_avatar"
+        android:visibility="invisible">
+
+        <ImageView
+            android:id="@+id/ivIncomingAvatar"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:background="@drawable/bg_chat_avatar"
+            android:clipToOutline="true"
+            android:contentDescription="@null"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvIncomingAvatarText"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:text="Ч"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+    </FrameLayout>
 
     <LinearLayout
         android:id="@+id/messageBubble"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="start"
         android:orientation="vertical"
         android:background="@drawable/bg_message_in">
 
@@ -109,6 +138,111 @@
             android:textColor="@color/text_primary"
             android:textSize="14sp" />
 
+        <LinearLayout
+            android:id="@+id/coinTransferCard"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="220dp"
+            android:layout_marginTop="2dp"
+            android:orientation="vertical"
+            android:background="@drawable/bg_coin_transfer_card"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="12dp"
+                android:background="@drawable/bg_coin_transfer_header">
+
+                <FrameLayout
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:background="@drawable/bg_coin_transfer_badge">
+
+                    <ImageView
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_chat_sheet_coins"
+                        android:contentDescription="@null" />
+                </FrameLayout>
+
+                <TextView
+                    android:id="@+id/tvCoinTransferTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:textColor="@android:color/white"
+                    android:textStyle="bold"
+                    android:textSize="13sp"
+                    android:text="Передача монет" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvCoinTransferAmount"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center"
+                    android:textColor="#FF2C6B78"
+                android:textStyle="bold"
+                android:textSize="28sp"
+                android:text="52" />
+
+            <TextView
+                android:id="@+id/tvCoinTransferSubtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:paddingHorizontal="12dp"
+                android:textColor="#FF374151"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:text="..." />
+
+            <TextView
+                android:id="@+id/tvCoinTransferComment"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginHorizontal="10dp"
+                android:background="@drawable/bg_input_soft"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="6dp"
+                android:textColor="#FF4B5563"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:paddingHorizontal="10dp"
+                android:paddingBottom="10dp"
+                android:gravity="end|center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvCoinTransferMetaTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FF6B7280"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/tvCoinTransferMetaStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:text="✓"
+                    android:textColor="#FF6B7280"
+                    android:textStyle="bold"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </LinearLayout>
+
         <TextView
             android:id="@+id/btnMessageAction"
             android:layout_width="wrap_content"
@@ -128,8 +262,8 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:layout_gravity="end"
-            android:textColor="@color/text_secondary"
-            android:textSize="11sp" />
+            android:textColor="#FF64748B"
+            android:textSize="10sp" />
     </LinearLayout>
 </LinearLayout>
 

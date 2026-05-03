@@ -55,6 +55,10 @@ class ChatsActivity : BaseActivity() {
     private var threadsActionMode: ActionMode? = null
 
     private var employeeId: String = ""
+    private var allThreads: List<ThreadItem> = emptyList()
+    private var activeFilter: ThreadsFilter = ThreadsFilter.ALL
+
+    private enum class ThreadsFilter { ALL, DISCUSSIONS, CATALOG }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val threadsRefreshIntervalMs = 2500L
@@ -125,6 +129,37 @@ class ChatsActivity : BaseActivity() {
         recycler.layoutManager = LinearLayoutManager(this)
         recycler.adapter = adapter
 
+        // Tabs: ALL / DISCUSSIONS / CATALOG
+        val tabAll = findViewById<TextView>(R.id.tabAll)
+        val tabDiscussions = findViewById<TextView>(R.id.tabDiscussions)
+        val tabCatalog = findViewById<TextView>(R.id.tabCatalog)
+        val indicator = findViewById<View>(R.id.tabIndicator)
+        fun select(filter: ThreadsFilter) {
+            activeFilter = filter
+            val active = getColor(R.color.nav_active)
+            val inactive = getColor(R.color.nav_inactive)
+            tabAll.setTextColor(if (filter == ThreadsFilter.ALL) active else inactive)
+            tabDiscussions.setTextColor(if (filter == ThreadsFilter.DISCUSSIONS) active else inactive)
+            tabCatalog.setTextColor(if (filter == ThreadsFilter.CATALOG) active else inactive)
+
+            val target = when (filter) {
+                ThreadsFilter.ALL -> tabAll
+                ThreadsFilter.DISCUSSIONS -> tabDiscussions
+                ThreadsFilter.CATALOG -> tabCatalog
+            }
+            target.post {
+                val lp = indicator.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+                lp.startToStart = target.id
+                lp.endToEnd = target.id
+                indicator.layoutParams = lp
+                applyFilter()
+            }
+        }
+        tabAll.setOnClickListener { select(ThreadsFilter.ALL) }
+        tabDiscussions.setOnClickListener { select(ThreadsFilter.DISCUSSIONS) }
+        tabCatalog.setOnClickListener { select(ThreadsFilter.CATALOG) }
+        select(ThreadsFilter.ALL)
+
         findViewById<View>(R.id.fabNewChat).setOnClickListener { openColleagueSearchDialog() }
         findViewById<View>(R.id.btnSearch).setOnClickListener { openColleagueSearchDialog() }
         findViewById<View>(R.id.navHome).setOnClickListener {
@@ -141,6 +176,10 @@ class ChatsActivity : BaseActivity() {
         findViewById<View>(R.id.navProfile).setOnClickListener {
             setBottomTab("profile")
             startActivity(Intent(this, ProfileActivity::class.java))
+        }
+        findViewById<View>(R.id.navContacts).setOnClickListener {
+            setBottomTab("store")
+            startActivity(Intent(this, com.example.app.ShopActivity::class.java))
         }
 
         setBottomTab("chats")
@@ -183,10 +222,11 @@ class ChatsActivity : BaseActivity() {
     }
 
     private fun setBottomTab(tab: String) {
-        val active = getColor(R.color.button_primary)
-        val inactive = getColor(R.color.text_secondary)
+        val active = getColor(R.color.nav_active)
+        val inactive = getColor(R.color.nav_inactive)
 
-        fun setItem(iconId: Int, textId: Int, isActive: Boolean, tintProfile: Boolean = true) {
+        fun setItem(containerId: Int, iconId: Int, textId: Int, isActive: Boolean, tintProfile: Boolean = true) {
+            val container = findViewById<View>(containerId)
             val icon = findViewById<ImageView>(iconId)
             val text = findViewById<TextView>(textId)
             val c = if (isActive) active else inactive
@@ -197,12 +237,41 @@ class ChatsActivity : BaseActivity() {
             }
             text.setTextColor(c)
             text.setTypeface(null, if (isActive) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            container.setBackgroundResource(
+                if (isActive) R.drawable.bg_bottom_nav_item_active
+                else android.R.color.transparent
+            )
         }
 
-        setItem(R.id.navChatsIcon, R.id.navChatsText, tab == "chats")
-        setItem(R.id.navHomeIcon, R.id.navHomeText, tab == "home")
-        setItem(R.id.navSettingsIcon, R.id.navSettingsText, tab == "settings")
-        setItem(R.id.navProfileIcon, R.id.navProfileText, tab == "profile")
+        setItem(R.id.navChats, R.id.navChatsIcon, R.id.navChatsText, tab == "chats")
+        setItem(R.id.navHome, R.id.navHomeIcon, R.id.navHomeText, tab == "home")
+        setItem(R.id.navSettings, R.id.navSettingsIcon, R.id.navSettingsText, tab == "settings")
+        setItem(R.id.navProfile, R.id.navProfileIcon, R.id.navProfileText, tab == "profile")
+        setItem(R.id.navContacts, R.id.navContactsIcon, R.id.navContactsText, tab == "store")
+    }
+
+    private fun applyFilter() {
+        val filtered = when (activeFilter) {
+            ThreadsFilter.ALL -> allThreads
+            ThreadsFilter.DISCUSSIONS -> allThreads.filter { t ->
+                val type = t.type?.lowercase() ?: ""
+                type != "bot" && type != "channel"
+            }
+            ThreadsFilter.CATALOG -> allThreads.filter { t ->
+                val type = t.type?.lowercase() ?: ""
+                type == "bot" || type == "channel"
+            }
+        }
+        adapter.submit(filtered)
+    }
+
+    private fun showContactsDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_contacts, null, false)
+        safeShowDialog(
+            AlertDialog.Builder(this)
+                .setView(view)
+                .setPositiveButton("Закрыть", null)
+        )
     }
 
     private fun openThread(thread: ThreadItem) {
@@ -213,6 +282,8 @@ class ChatsActivity : BaseActivity() {
         i.putExtra(ChatActivity.EXTRA_THREAD_IS_TECH_ADMIN, thread.isTechAdmin)
         i.putExtra(ChatActivity.EXTRA_THREAD_BOT_ID, thread.botId)
         i.putExtra(ChatActivity.EXTRA_THREAD_IS_OFFICIAL_BOT, thread.isOfficialBot)
+        i.putExtra(ChatActivity.EXTRA_THREAD_IS_ONLINE, thread.isOnline)
+        i.putExtra(ChatActivity.EXTRA_THREAD_AVATAR_URL, thread.avatarUrl)
         startActivity(i)
     }
 
@@ -226,7 +297,7 @@ class ChatsActivity : BaseActivity() {
         if (!silent) {
             progress.visibility = View.VISIBLE
             empty.visibility = View.GONE
-            findViewById<TextView>(R.id.tvChatsTitle).text = "Соединение…"
+            findViewById<TextView>(R.id.tvChatsSubtitle).text = "Обновление..."
         }
 
         scope.launch {
@@ -240,15 +311,16 @@ class ChatsActivity : BaseActivity() {
                     empty.text = body?.message ?: getString(R.string.error_network)
                     empty.visibility = View.VISIBLE
                     if (!silent) adapter.submit(emptyList())
-                    if (!silent) findViewById<TextView>(R.id.tvChatsTitle).text = "Чаты"
+                    if (!silent) findViewById<TextView>(R.id.tvChatsSubtitle).text = "Групповые и персональные"
                     return@launch
                 }
                 val list = body.threads.orEmpty().sortedByDescending { threadActivityMillis(it) }
-                adapter.submit(list)
+                allThreads = list
+                applyFilter()
                 updateChatsBottomBadge(list)
                 empty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
                 if (list.isEmpty()) empty.text = "Нет диалогов"
-                if (!silent) findViewById<TextView>(R.id.tvChatsTitle).text = "Чаты"
+                if (!silent) findViewById<TextView>(R.id.tvChatsSubtitle).text = "Групповые и персональные"
             } catch (e: Exception) {
                 if (!silent) {
                     progress.visibility = View.GONE
@@ -256,7 +328,7 @@ class ChatsActivity : BaseActivity() {
                     empty.visibility = View.VISIBLE
                     adapter.submit(emptyList())
                     updateChatsBottomBadge(emptyList())
-                    findViewById<TextView>(R.id.tvChatsTitle).text = "Чаты"
+                    findViewById<TextView>(R.id.tvChatsSubtitle).text = "Проблемы с сетью"
                 }
             }
         }

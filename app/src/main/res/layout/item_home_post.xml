@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/postCardRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginTop="8dp"
-    android:background="@drawable/bg_profile_action_row"
+    android:layout_marginTop="12dp"
+    android:background="@drawable/bg_home_announcement"
     android:padding="12dp">
 
     <LinearLayout
@@ -20,13 +21,27 @@
             android:gravity="center_vertical">
 
             <TextView
+                android:id="@+id/tvPostHeroBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="24dp"
+                android:layout_marginEnd="8dp"
+                android:gravity="center"
+                android:paddingHorizontal="10dp"
+                android:text="Главная новость"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="@color/button_primary"
+                android:background="@drawable/bg_tg_chip_selected"
+                android:visibility="gone" />
+
+            <TextView
                 android:id="@+id/tvPostTitle"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:textColor="@color/text_primary"
                 android:textStyle="bold"
-                android:textSize="15sp" />
+                android:textSize="16sp" />
 
             <TextView
                 android:id="@+id/tvPostImportant"
@@ -46,13 +61,14 @@
         android:id="@+id/postMediaContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+            android:layout_marginTop="8dp"
         android:orientation="vertical"
         android:visibility="gone">
 
         <FrameLayout
+            android:id="@+id/postMediaTopFrame"
             android:layout_width="match_parent"
-            android:layout_height="228dp">
+                android:layout_height="180dp">
 
             <ImageView
                 android:id="@+id/postMediaTop"
@@ -158,10 +174,8 @@
             android:id="@+id/tvPostText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:maxLines="4"
-            android:ellipsize="end"
-            android:textColor="@color/text_primary"
+            android:layout_marginTop="10dp"
+            android:textColor="#FF1F2937"
             android:textSize="14sp" />
 
         <TextView
@@ -208,6 +222,38 @@
                 android:textStyle="bold"
                 android:background="@drawable/bg_feed_action_button_ripple"
                 android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/btnPostRegisterEvent"
+                android:layout_width="0dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:paddingHorizontal="12dp"
+                android:text="Зарегистрироваться"
+                android:textColor="@color/button_primary"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:background="@drawable/bg_feed_action_button_ripple"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/btnPostEventRegistrations"
+                android:layout_width="0dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:paddingHorizontal="12dp"
+                android:text="Участники"
+                android:textColor="@color/button_primary"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:background="@drawable/bg_feed_action_button_ripple"
+                android:visibility="gone" />
         </LinearLayout>
 
         <TextView
@@ -215,8 +261,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+            android:textColor="#FF6B7280"
+            android:textSize="11sp" />
     </LinearLayout>
 
     </LinearLayout>

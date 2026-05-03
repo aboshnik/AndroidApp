@@ -16,6 +16,7 @@ export function CreatePostPage() {
   const [pollQuestion, setPollQuestion] = useState('')
   const [pollOptions, setPollOptions] = useState<string[]>(['', ''])
   const [files, setFiles] = useState<File[]>([])
+  const [eventEnabled, setEventEnabled] = useState(false)
 
   if (!session) return null
 
@@ -33,12 +34,15 @@ export function CreatePostPage() {
             creatorCanViewWithoutVoting: true,
           }
         : null
+      const isEvent = eventEnabled
+
       if (files.length > 0) {
         const resp = await createPostWithMedia({
           content: content.trim(),
           authorLogin: session.login,
           isImportant,
           poll,
+          isEvent,
           files,
         })
         if (!resp.success) throw new Error(resp.message || 'Не удалось создать новость')
@@ -49,6 +53,7 @@ export function CreatePostPage() {
         authorLogin: session.login,
         isImportant,
         poll,
+        isEvent,
       })
       if (!resp.success) throw new Error(resp.message || 'Не удалось создать новость')
     },
@@ -102,6 +107,16 @@ export function CreatePostPage() {
           </button>
         </div>
       ) : null}
+
+      <hr />
+      <label className="remember-row">
+        <input
+          type="checkbox"
+          checked={eventEnabled}
+          onChange={(e) => setEventEnabled(e.target.checked)}
+        />
+        <span>Мероприятие</span>
+      </label>
       {submit.error ? <p className="error">{(submit.error as Error).message}</p> : null}
       <div className="post-actions">
         <button type="button" onClick={() => navigate(`${basePath}/home`)}>
@@ -109,7 +124,11 @@ export function CreatePostPage() {
         </button>
         <button
           type="button"
-          disabled={submit.isPending || !content.trim() || (pollEnabled && (!pollQuestion.trim() || pollOptions.filter((x) => x.trim()).length < 2))}
+          disabled={
+            submit.isPending ||
+            !content.trim() ||
+            (pollEnabled && (!pollQuestion.trim() || pollOptions.filter((x) => x.trim()).length < 2))
+          }
           onClick={() => submit.mutate()}
         >
           {submit.isPending ? 'Публикация...' : 'Опубликовать'}

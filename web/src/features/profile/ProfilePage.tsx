@@ -55,8 +55,8 @@ export function ProfilePage() {
   const data = profileQuery.data
   const progressPct = useMemo(() => {
     if (!data?.profile) return 0
-    const total = Math.max(1, (data.profile.experience ?? 0) + (data.profile.xpToNext ?? 0))
-    return Math.max(0, Math.min(100, Math.round(((data.profile.experience ?? 0) / total) * 100)))
+    const nextPayoutDays = Math.max(0, data.profile.nextPayoutDays ?? data.profile.xpToNext ?? 0)
+    return Math.max(0, Math.min(100, 100 - nextPayoutDays))
   }, [data?.profile])
   const avatarCandidates = useMemo(() => {
     const raw = data?.profile?.avatarUrl
@@ -108,6 +108,8 @@ export function ProfilePage() {
     setAvatarIdx(0)
   }, [avatarCandidates])
   const avatarSrc = avatarCandidates[avatarIdx] ?? '/favicon.svg'
+  const coinBalance = Math.max(0, data?.profile?.coinBalance ?? data?.profile?.experience ?? 0)
+  const nextPayoutDays = Math.max(0, data?.profile?.nextPayoutDays ?? data?.profile?.xpToNext ?? 0)
   const schedule = scheduleQuery.data?.schedule
   const vacationFrom = parseIsoDate(schedule?.vacationStart)
   const vacationTo = parseIsoDate(schedule?.vacationEnd)
@@ -216,13 +218,13 @@ export function ProfilePage() {
         </div>
         <div className="level-box">
           <div className="level-row">
-            <strong>Уровень {data.profile.level ?? 1}</strong>
+            <strong>Ваш баланс {coinBalance}</strong>
           </div>
           <div className="progress">
             <div className="progress-fill" style={{ width: `${progressPct}%` }} />
           </div>
           <span className="muted">
-            {data.profile.experience ?? 0} / {(data.profile.experience ?? 0) + (data.profile.xpToNext ?? 0)} опыта
+            Следующая выдача 5 монет будет через {nextPayoutDays} дней
           </span>
         </div>
       </div>
@@ -255,7 +257,18 @@ export function ProfilePage() {
           type="button"
           className="iphone-row iphone-row-btn"
           onClick={() => {
-            window.alert('в разработке')
+            const isIphone = window.location.pathname.startsWith('/iphone')
+            navigate(isIphone ? '/iphone/shop' : '/shop')
+          }}
+        >
+          <span>Магазин</span>
+          <span>›</span>
+        </button>
+        <button
+          type="button"
+          className="iphone-row iphone-row-btn"
+          onClick={() => {
+            setScheduleOpen(true)
           }}
         >
           <span>Календарь</span>

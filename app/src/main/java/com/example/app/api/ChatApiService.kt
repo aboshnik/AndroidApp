@@ -38,6 +38,12 @@ interface ChatApiService {
         @Body body: SendMessageRequest
     ): Response<SendMessageResponse>
 
+    @POST("api/chat/threads/{threadId}/coins/transfer")
+    suspend fun transferCoins(
+        @Path("threadId") threadId: Int,
+        @Body body: ChatCoinsTransferRequest
+    ): Response<SendMessageResponse>
+
     @Multipart
     @POST("api/chat/threads/{threadId}/media")
     suspend fun uploadChatMedia(

@@ -3,6 +3,7 @@ using Microsoft.Data.SqlClient;
 using System.Globalization;
 using System.Text.Json;
 using EmployeeApi.Services;
+using EmployeeApi.Services.Coins;
 
 namespace EmployeeApi.Controllers;
 
@@ -15,21 +16,27 @@ public class PostController : ControllerBase
     private const int MaxPostVideoCount = 5;
     private readonly IConfiguration _configuration;
     private readonly IWebHostEnvironment _env;
+    private readonly ICoinsService _coinsService;
 
-    public PostController(IConfiguration configuration, IWebHostEnvironment env)
+    public PostController(IConfiguration configuration, IWebHostEnvironment env, ICoinsService coinsService)
     {
         _configuration = configuration;
         _env = env;
+        _coinsService = coinsService;
     }
 
     [HttpPost]
     public async Task<ActionResult<CreatePostResponse>> Create([FromBody] CreatePostRequest request)
     {
-        if (request == null || string.IsNullOrWhiteSpace(request.Content))
+        var normalizedContent = request?.Content?.Trim() ?? string.Empty;
+        var normalizedPoll = NormalizePoll(request?.Poll);
+        var hasPoll = normalizedPoll != null;
+        var hasContent = !string.IsNullOrWhiteSpace(normalizedContent);
+        if (request == null || (!hasContent && !hasPoll))
         {
-            return BadRequest(new CreatePostResponse(false, "Текст поста не может быть пустым", null));
+            return BadRequest(new CreatePostResponse(false, "Добавьте текст или опрос", null));
         }
-        if (request.Content.Trim().Length > MaxPostTextLength)
+        if (normalizedContent.Length > MaxPostTextLength)
         {
             return BadRequest(new CreatePostResponse(false, $"Максимум {MaxPostTextLength} символа(ов) в тексте новости", null));
         }
@@ -53,6 +60,7 @@ public class PostController : ControllerBase
             await EnsurePostsTableExistsAsync(connection);
             await EnsurePostPollTablesExistsAsync(connection);
             await EnsurePostMediaTableExistsAsync(connection);
+            await EnsurePostEventTablesExistsAsync(connection);
             await EnsureUserPermissionsTableExistsAsync(connection);
 
             var allowed = await CanCreatePostsAsync(connection, request.AuthorLogin);
@@ -63,23 +71,35 @@ public class PostController : ControllerBase
 
             var authorName = await GetAuthorNameAsync(connection, request.AuthorLogin);
             var isImportant = request.IsImportant ?? false;
+            var isEvent = request.IsEvent ?? false;
+            var eventCoinReward = isEvent ? Math.Clamp(request.EventCoinReward ?? 0, 0, 100000) : 0;
+            var isTechAdmin = await IsTechAdminAsync(connection, request.AuthorLogin);
+            var eventGrantDelayDays = 0;
+            if (isEvent)
+            {
+                var requestedDelay = request.EventGrantDelayDays ?? 2;
+                if (requestedDelay != 1 && requestedDelay != 2) requestedDelay = 2;
+                eventGrantDelayDays = (isTechAdmin && (request.EventGrantInstant ?? false)) ? 0 : requestedDelay;
+            }
             DateTime? expiresAt = isImportant ? null : DateTime.UtcNow.AddDays(7);
 
             const string sql = @"
-                INSERT INTO [App_Posts] ([AuthorLogin], [AuthorName], [Content], [CreatedAt], [IsImportant], [ExpiresAt], [LikesCount], [CommentsCount])
-                VALUES (@AuthorLogin, @AuthorName, @Content, GETUTCDATE(), @IsImportant, @ExpiresAt, 0, 0);
+                INSERT INTO [App_Posts] ([AuthorLogin], [AuthorName], [Content], [CreatedAt], [IsImportant], [ExpiresAt], [LikesCount], [CommentsCount], [IsEvent], [EventCoinReward], [EventGrantDelayDays])
+                VALUES (@AuthorLogin, @AuthorName, @Content, GETUTCDATE(), @IsImportant, @ExpiresAt, 0, 0, @IsEvent, @EventCoinReward, @EventGrantDelayDays);
                 SELECT SCOPE_IDENTITY();";
 
             await using var cmd = new SqlCommand(sql, connection);
             cmd.Parameters.AddWithValue("@AuthorLogin", request.AuthorLogin);
             cmd.Parameters.AddWithValue("@AuthorName", authorName ?? request.AuthorLogin);
-            cmd.Parameters.AddWithValue("@Content", request.Content.Trim());
+            cmd.Parameters.AddWithValue("@Content", normalizedContent);
             cmd.Parameters.AddWithValue("@IsImportant", isImportant);
             cmd.Parameters.AddWithValue("@ExpiresAt", (object?)expiresAt ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@IsEvent", isEvent);
+            cmd.Parameters.AddWithValue("@EventCoinReward", eventCoinReward);
+            cmd.Parameters.AddWithValue("@EventGrantDelayDays", eventGrantDelayDays);
 
             var newId = await cmd.ExecuteScalarAsync();
             var id = Convert.ToInt32(newId);
-            var normalizedPoll = NormalizePoll(request.Poll);
             if (request.Poll != null && normalizedPoll == null)
             {
                 return BadRequest(new CreatePostResponse(false, "Некорректный опрос: минимум 2 разных варианта ответа", null));
@@ -93,7 +113,7 @@ public class PostController : ControllerBase
                 Id: id,
                 AuthorLogin: request.AuthorLogin,
                 AuthorName: authorName ?? request.AuthorLogin,
-                Content: request.Content.Trim(),
+                Content: normalizedContent,
                 CreatedAt: DateTime.UtcNow,
                 ImageUrl: null,
                 MediaUrls: null,
@@ -101,7 +121,11 @@ public class PostController : ControllerBase
                 ExpiresAt: expiresAt,
                 LikesCount: 0,
                 CommentsCount: 0,
-                Poll: normalizedPoll == null ? null : ToPollItem(normalizedPoll));
+                Poll: normalizedPoll == null ? null : ToPollItem(normalizedPoll),
+                IsEvent: isEvent,
+                EventCoinReward: eventCoinReward,
+                IsRegistered: false,
+                EventRegistrations: null);
 
             await EnsureNotificationsTablesAsync(connection);
             await CreateBroadcastNotificationAsync(connection,
@@ -142,6 +166,85 @@ public class PostController : ControllerBase
         }
     }
 
+    [HttpGet("event-registrants/search")]
+    public async Task<ActionResult<EventRegistrantsSearchResponse>> SearchEventRegistrants([FromQuery] string q = "", [FromQuery] int take = 20)
+    {
+        var cs = _configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrEmpty(cs))
+            return StatusCode(500, new EventRegistrantsSearchResponse(false, "Не настроено подключение к БД", null));
+
+        try
+        {
+            await using var connection = new SqlConnection(cs);
+            await connection.OpenAsync();
+            await EnsurePostEventTablesExistsAsync(connection);
+
+            var query = (q ?? "").Trim();
+            if (take <= 0) take = 20;
+            if (take > 50) take = 50;
+
+            // normalize: lower, strip spaces and punctuation commonly used in FIO
+            static string Norm(string s) =>
+                (s ?? "")
+                    .Trim()
+                    .ToLowerInvariant()
+                    .Replace(" ", "")
+                    .Replace("-", "")
+                    .Replace(".", "");
+
+            var nq = Norm(query);
+            var like = nq.Length == 0 ? null : $"%{nq}%";
+
+            const string sql = @"
+                SELECT TOP (@Take)
+                    R.[Login],
+                    LTRIM(RTRIM(CONCAT(
+                        ISNULL(C.[Фамилия], ''),
+                        CASE WHEN C.[Имя] IS NULL OR LTRIM(RTRIM(C.[Имя])) = '' THEN '' ELSE ' ' + LTRIM(RTRIM(C.[Имя])) END,
+                        CASE WHEN C.[Отчество] IS NULL OR LTRIM(RTRIM(C.[Отчество])) = '' THEN '' ELSE ' ' + LTRIM(RTRIM(C.[Отчество])) END
+                    ))) AS FullName,
+                    C.[Фамилия],
+                    C.[Имя],
+                    C.[Отчество],
+                    UP.[AvatarFileName]
+                FROM (SELECT DISTINCT [Login] FROM [App_PostEventRegistrations]) R
+                LEFT JOIN [Lexema_Кадры_ЛичнаяКарточка] C ON C.[Логин] = R.[Login]
+                LEFT JOIN [App_UserProfile] UP ON UP.[Login] = R.[Login]
+                WHERE (@Like IS NULL) OR (
+                    LOWER(REPLACE(REPLACE(REPLACE(CONCAT(ISNULL(C.[Фамилия], ''), ISNULL(C.[Имя], ''), ISNULL(C.[Отчество], '')), ' ', ''), '-', ''), '.', '')) LIKE @Like
+                )
+                ORDER BY FullName;";
+
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            var list = new List<EventRegistrantMentionItem>();
+            await using var cmd = new SqlCommand(sql, connection);
+            cmd.Parameters.AddWithValue("@Take", take);
+            cmd.Parameters.AddWithValue("@Like", (object?)like ?? DBNull.Value);
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var login = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                var fullName = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                var fam = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                var im = reader.IsDBNull(3) ? "" : reader.GetString(3);
+                var ot = reader.IsDBNull(4) ? "" : reader.GetString(4);
+                var mentionKey = Norm($"{fam}{im}{ot}");
+                if (string.IsNullOrWhiteSpace(mentionKey))
+                    mentionKey = Norm(fullName);
+                if (string.IsNullOrWhiteSpace(mentionKey))
+                    mentionKey = Norm(login);
+                var avatarFile = reader.IsDBNull(5) ? null : reader.GetString(5);
+                var avatarUrl = string.IsNullOrWhiteSpace(avatarFile) ? null : $"{baseUrl}/uploads/avatars/{Uri.EscapeDataString(avatarFile)}";
+                list.Add(new EventRegistrantMentionItem(login, string.IsNullOrWhiteSpace(fullName) ? login : fullName, mentionKey, avatarUrl));
+            }
+            return Ok(new EventRegistrantsSearchResponse(true, "OK", list));
+        }
+        catch (Exception ex)
+        {
+            return Ok(new EventRegistrantsSearchResponse(false, $"Ошибка: {ex.GetType().Name}: {ex.Message}", null));
+        }
+    }
+
     [HttpPost("media")]
     [RequestSizeLimit(25_000_000)] 
     public async Task<ActionResult<CreatePostResponse>> CreateWithMedia(
@@ -159,11 +262,15 @@ public class PostController : ControllerBase
                 $"POST /api/post/media: mediaCount={media.Count}");
         }
 
-        if (string.IsNullOrWhiteSpace(content))
+        var normalizedContent = content?.Trim() ?? string.Empty;
+        var normalizedPoll = ParseAndNormalizePollOrNull(pollJson);
+        var hasMedia = media != null && media.Any(m => m != null && m.Length > 0);
+        var hasPoll = normalizedPoll != null;
+        if (string.IsNullOrWhiteSpace(normalizedContent) && !hasMedia && !hasPoll)
         {
-            return BadRequest(new CreatePostResponse(false, "Текст поста не может быть пустым", null));
+            return BadRequest(new CreatePostResponse(false, "Добавьте текст, медиа или опрос", null));
         }
-        if (content.Trim().Length > MaxPostTextLength)
+        if (normalizedContent.Length > MaxPostTextLength)
         {
             return BadRequest(new CreatePostResponse(false, $"Максимум {MaxPostTextLength} символа(ов) в тексте новости", null));
         }
@@ -187,6 +294,7 @@ public class PostController : ControllerBase
             await EnsurePostsTableExistsAsync(connection);
             await EnsurePostPollTablesExistsAsync(connection);
             await EnsurePostMediaTableExistsAsync(connection);
+            await EnsurePostEventTablesExistsAsync(connection);
             await EnsureUserPermissionsTableExistsAsync(connection);
 
             var allowed = await CanCreatePostsAsync(connection, authorLogin);
@@ -206,24 +314,37 @@ public class PostController : ControllerBase
                 : new List<string>();
             var imageUrl = mediaUrls.FirstOrDefault();
             var importantFlag = isImportant ?? false;
+            var isEventFlag = requestBoolFromForm(Request.Form, "isEvent");
+            var eventCoins = isEventFlag ? Math.Clamp(requestIntFromForm(Request.Form, "eventCoinReward"), 0, 100000) : 0;
+            var wantsInstant = isEventFlag && requestBoolFromForm(Request.Form, "eventGrantInstant");
+            var isTechAdmin = await IsTechAdminAsync(connection, authorLogin);
+            var eventGrantDelayDays = 0;
+            if (isEventFlag)
+            {
+                var requestedDelay = requestIntFromForm(Request.Form, "eventGrantDelayDays");
+                if (requestedDelay != 1 && requestedDelay != 2) requestedDelay = 2;
+                eventGrantDelayDays = (isTechAdmin && wantsInstant) ? 0 : requestedDelay;
+            }
             DateTime? expiresAt = importantFlag ? null : DateTime.UtcNow.AddDays(7);
 
             const string sql = @"
-                INSERT INTO [App_Posts] ([AuthorLogin], [AuthorName], [Content], [CreatedAt], [ImageUrl], [IsImportant], [ExpiresAt], [LikesCount], [CommentsCount])
-                VALUES (@AuthorLogin, @AuthorName, @Content, GETUTCDATE(), @ImageUrl, @IsImportant, @ExpiresAt, 0, 0);
+                INSERT INTO [App_Posts] ([AuthorLogin], [AuthorName], [Content], [CreatedAt], [ImageUrl], [IsImportant], [ExpiresAt], [LikesCount], [CommentsCount], [IsEvent], [EventCoinReward], [EventGrantDelayDays])
+                VALUES (@AuthorLogin, @AuthorName, @Content, GETUTCDATE(), @ImageUrl, @IsImportant, @ExpiresAt, 0, 0, @IsEvent, @EventCoinReward, @EventGrantDelayDays);
                 SELECT SCOPE_IDENTITY();";
 
             await using var cmd = new SqlCommand(sql, connection);
             cmd.Parameters.AddWithValue("@AuthorLogin", authorLogin);
             cmd.Parameters.AddWithValue("@AuthorName", authorName ?? authorLogin);
-            cmd.Parameters.AddWithValue("@Content", content.Trim());
+            cmd.Parameters.AddWithValue("@Content", normalizedContent);
             cmd.Parameters.AddWithValue("@ImageUrl", (object?)imageUrl ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@IsImportant", importantFlag);
             cmd.Parameters.AddWithValue("@ExpiresAt", (object?)expiresAt ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@IsEvent", isEventFlag);
+            cmd.Parameters.AddWithValue("@EventCoinReward", eventCoins);
+            cmd.Parameters.AddWithValue("@EventGrantDelayDays", eventGrantDelayDays);
 
             var newId = await cmd.ExecuteScalarAsync();
             var id = Convert.ToInt32(newId, CultureInfo.InvariantCulture);
-            var normalizedPoll = ParseAndNormalizePollOrNull(pollJson);
             if (!string.IsNullOrWhiteSpace(pollJson) && normalizedPoll == null)
             {
                 return BadRequest(new CreatePostResponse(false, "Некорректный опрос: минимум 2 разных варианта ответа", null));
@@ -237,7 +358,7 @@ public class PostController : ControllerBase
                 Id: id,
                 AuthorLogin: authorLogin,
                 AuthorName: authorName ?? authorLogin,
-                Content: content.Trim(),
+                Content: normalizedContent,
                 CreatedAt: DateTime.UtcNow,
                 ImageUrl: imageUrl,
                 MediaUrls: mediaUrls.Count == 0 ? null : mediaUrls,
@@ -245,7 +366,11 @@ public class PostController : ControllerBase
                 ExpiresAt: expiresAt,
                 LikesCount: 0,
                 CommentsCount: 0,
-                Poll: normalizedPoll == null ? null : ToPollItem(normalizedPoll));
+                Poll: normalizedPoll == null ? null : ToPollItem(normalizedPoll),
+                IsEvent: isEventFlag,
+                EventCoinReward: eventCoins,
+                IsRegistered: false,
+                EventRegistrations: null);
 
             if (mediaUrls.Count > 0)
             {
@@ -308,6 +433,7 @@ public class PostController : ControllerBase
             await EnsurePostsTableExistsAsync(connection);
             await EnsurePostPollTablesExistsAsync(connection);
             await EnsurePostMediaTableExistsAsync(connection);
+            await EnsurePostEventTablesExistsAsync(connection);
 
             
             const string cleanupSql = @"
@@ -319,7 +445,7 @@ public class PostController : ControllerBase
             }
 
             const string sql = @"
-                SELECT [Id], [AuthorLogin], [AuthorName], [Content], [CreatedAt], [ImageUrl], [IsImportant], [ExpiresAt], [LikesCount], [CommentsCount]
+                SELECT [Id], [AuthorLogin], [AuthorName], [Content], [CreatedAt], [ImageUrl], [IsImportant], [ExpiresAt], [LikesCount], [CommentsCount], ISNULL([IsEvent],0), ISNULL([EventCoinReward],0)
                 FROM [App_Posts]
                 WHERE [ExpiresAt] IS NULL OR [ExpiresAt] > GETUTCDATE()
                 ORDER BY [CreatedAt] DESC;";
@@ -342,7 +468,11 @@ public class PostController : ControllerBase
                         ExpiresAt: reader.IsDBNull(7) ? null : reader.GetDateTime(7),
                         LikesCount: reader.GetInt32(8),
                         CommentsCount: reader.GetInt32(9),
-                        Poll: null));
+                        Poll: null,
+                        IsEvent: !reader.IsDBNull(10) && Convert.ToInt32(reader.GetValue(10)) == 1,
+                        EventCoinReward: reader.IsDBNull(11) ? 0 : Convert.ToInt32(reader.GetValue(11)),
+                        IsRegistered: false,
+                        EventRegistrations: null));
                 }
             }
 
@@ -353,8 +483,12 @@ public class PostController : ControllerBase
                 var mediaUrls = await GetPostMediaUrlsAsync(connection, p.Id);
                 posts[i] = p with
                 {
-                    MediaUrls = mediaUrls.Count == 0 ? (p.ImageUrl == null ? null : new List<string> { p.ImageUrl }) : mediaUrls,
-                    Poll = await GetPollForPostAsync(connection, p.Id, login, p.AuthorLogin, baseUrl)
+                    MediaUrls = mediaUrls.Count == 0 ? (p.ImageUrl == null ? null : new List<string> { NormalizeUploadsUrl(p.ImageUrl) }) : mediaUrls,
+                    Poll = await GetPollForPostAsync(connection, p.Id, login, p.AuthorLogin, baseUrl),
+                    IsRegistered = p.IsEvent && await IsEventRegisteredAsync(connection, p.Id, login),
+                    EventRegistrations = p.IsEvent && !string.IsNullOrWhiteSpace(login) && string.Equals(p.AuthorLogin, login, StringComparison.OrdinalIgnoreCase)
+                        ? await GetEventRegistrationsAsync(connection, p.Id, baseUrl)
+                        : null
                 };
             }
 
@@ -507,6 +641,64 @@ public class PostController : ControllerBase
         }
     }
 
+    [HttpPost("{id:int}/register-event")]
+    public async Task<ActionResult<EventRegisterResponse>> RegisterEvent(int id, [FromBody] EventRegisterRequest request)
+    {
+        if (id <= 0 || request == null || string.IsNullOrWhiteSpace(request.Login))
+            return BadRequest(new EventRegisterResponse(false, "Некорректные данные"));
+
+        var cs = _configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrEmpty(cs))
+            return StatusCode(500, new EventRegisterResponse(false, "Не настроено подключение к БД"));
+
+        try
+        {
+            await using var connection = new SqlConnection(cs);
+            await connection.OpenAsync();
+            await EnsurePostEventTablesExistsAsync(connection);
+
+            const string postSql = @"SELECT TOP 1 [AuthorLogin], ISNULL([IsEvent],0) FROM [App_Posts] WHERE [Id] = @Id;";
+            string authorLogin = "";
+            var isEvent = false;
+            await using (var cmd = new SqlCommand(postSql, connection))
+            {
+                cmd.Parameters.AddWithValue("@Id", id);
+                await using var reader = await cmd.ExecuteReaderAsync();
+                if (!await reader.ReadAsync()) return Ok(new EventRegisterResponse(false, "Новость не найдена"));
+                authorLogin = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                isEvent = !reader.IsDBNull(1) && Convert.ToInt32(reader.GetValue(1)) == 1;
+            }
+            if (!isEvent) return Ok(new EventRegisterResponse(false, "Это не мероприятие"));
+            var login = request.Login.Trim();
+            if (string.Equals(login, authorLogin, StringComparison.OrdinalIgnoreCase))
+                return Ok(new EventRegisterResponse(false, "Автор не может зарегистрироваться"));
+
+            const string insertSql = @"
+                IF EXISTS (SELECT 1 FROM [App_PostEventRegistrations] WHERE [PostId] = @PostId AND [Login] = @Login)
+                    SELECT 0
+                ELSE
+                BEGIN
+                    INSERT INTO [App_PostEventRegistrations] ([PostId], [Login], [RegisteredAt])
+                    VALUES (@PostId, @Login, GETUTCDATE());
+                    SELECT 1
+                END";
+            int inserted;
+            await using (var ins = new SqlCommand(insertSql, connection))
+            {
+                ins.Parameters.AddWithValue("@PostId", id);
+                ins.Parameters.AddWithValue("@Login", login);
+                inserted = Convert.ToInt32(await ins.ExecuteScalarAsync() ?? 0);
+            }
+            if (inserted == 0) return Ok(new EventRegisterResponse(true, "Вы уже зарегистрированы"));
+
+            return Ok(new EventRegisterResponse(true, "Регистрация на мероприятие выполнена"));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new EventRegisterResponse(false, $"Ошибка: {ex.Message}"));
+        }
+    }
+
     private static async Task EnsurePostsTableExistsAsync(SqlConnection connection)
     {
         const string createSql = @"
@@ -528,7 +720,13 @@ public class PostController : ControllerBase
                 ALTER TABLE [App_Posts] ADD [IsImportant] BIT NOT NULL CONSTRAINT [DF_App_Posts_IsImportant] DEFAULT 0;
 
             IF COL_LENGTH('App_Posts', 'ExpiresAt') IS NULL
-                ALTER TABLE [App_Posts] ADD [ExpiresAt] DATETIME2 NULL;";
+                ALTER TABLE [App_Posts] ADD [ExpiresAt] DATETIME2 NULL;
+            IF COL_LENGTH('App_Posts', 'IsEvent') IS NULL
+                ALTER TABLE [App_Posts] ADD [IsEvent] BIT NOT NULL CONSTRAINT [DF_App_Posts_IsEvent] DEFAULT 0;
+            IF COL_LENGTH('App_Posts', 'EventCoinReward') IS NULL
+                ALTER TABLE [App_Posts] ADD [EventCoinReward] INT NOT NULL CONSTRAINT [DF_App_Posts_EventCoinReward] DEFAULT 0;
+            IF COL_LENGTH('App_Posts', 'EventGrantDelayDays') IS NULL
+                ALTER TABLE [App_Posts] ADD [EventGrantDelayDays] INT NOT NULL CONSTRAINT [DF_App_Posts_EventGrantDelayDays] DEFAULT 2;";
 
         await using var cmd = new SqlCommand(createSql, connection);
         await cmd.ExecuteNonQueryAsync();
@@ -588,6 +786,88 @@ public class PostController : ControllerBase
         await cmd.ExecuteNonQueryAsync();
     }
 
+    private static async Task EnsurePostEventTablesExistsAsync(SqlConnection connection)
+    {
+        const string sql = @"
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'App_PostEventRegistrations')
+            CREATE TABLE [App_PostEventRegistrations] (
+                [PostId] INT NOT NULL,
+                [Login] NVARCHAR(100) NOT NULL,
+                [RegisteredAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+                CONSTRAINT [PK_App_PostEventRegistrations] PRIMARY KEY ([PostId], [Login])
+            );
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'App_PostEventPendingCoins')
+            CREATE TABLE [App_PostEventPendingCoins] (
+                [Id] INT IDENTITY(1,1) PRIMARY KEY,
+                [PostId] INT NOT NULL,
+                [Login] NVARCHAR(100) NOT NULL,
+                [Coins] INT NOT NULL,
+                [DueAt] DATETIME2 NOT NULL,
+                [GrantedAt] DATETIME2 NULL,
+                [CreatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+            );";
+        await using var cmd = new SqlCommand(sql, connection);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<bool> IsEventRegisteredAsync(SqlConnection connection, int postId, string? login)
+    {
+        if (string.IsNullOrWhiteSpace(login)) return false;
+        const string sql = @"SELECT TOP 1 1 FROM [App_PostEventRegistrations] WHERE [PostId] = @PostId AND [Login] = @Login;";
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@PostId", postId);
+        cmd.Parameters.AddWithValue("@Login", login.Trim());
+        var o = await cmd.ExecuteScalarAsync();
+        return o != null && o != DBNull.Value;
+    }
+
+    private async Task<List<EventRegistrationItem>> GetEventRegistrationsAsync(SqlConnection connection, int postId, string baseUrl)
+    {
+        const string sql = @"
+            SELECT R.[Login], COALESCE(LTRIM(RTRIM(CONCAT(C.[Фамилия], ' ', C.[Имя]))), R.[Login]) AS FullName, UP.[AvatarFileName]
+            FROM [App_PostEventRegistrations] R
+            LEFT JOIN [Lexema_Кадры_ЛичнаяКарточка] C ON C.[Логин] = R.[Login]
+            LEFT JOIN [App_UserProfile] UP ON UP.[Login] = R.[Login]
+            WHERE R.[PostId] = @PostId
+            ORDER BY R.[RegisteredAt] DESC;";
+        var list = new List<EventRegistrationItem>();
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@PostId", postId);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var login = reader.IsDBNull(0) ? "" : reader.GetString(0);
+            var name = reader.IsDBNull(1) ? login : reader.GetString(1);
+            var avatarFile = reader.IsDBNull(2) ? null : reader.GetString(2);
+            var avatarUrl = string.IsNullOrWhiteSpace(avatarFile) ? null : $"{baseUrl}/uploads/avatars/{Uri.EscapeDataString(avatarFile)}";
+            list.Add(new EventRegistrationItem(login, name, avatarUrl));
+        }
+        return list;
+    }
+
+    private static bool requestBoolFromForm(IFormCollection form, string key)
+    {
+        var raw = form[key].ToString().Trim();
+        return raw.Equals("true", StringComparison.OrdinalIgnoreCase) || raw == "1" || raw.Equals("on", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int requestIntFromForm(IFormCollection form, string key)
+    {
+        var raw = form[key].ToString().Trim();
+        return int.TryParse(raw, out var v) ? v : 0;
+    }
+
+    private static async Task<bool> IsTechAdminAsync(SqlConnection connection, string login)
+    {
+        var key = login.Trim();
+        if (string.IsNullOrWhiteSpace(key)) return false;
+        const string sql = @"SELECT TOP 1 ISNULL([CanTechAdmin], 0) FROM [App_UserPermissions] WHERE [Login] = @Login;";
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@Login", key);
+        var v = await cmd.ExecuteScalarAsync();
+        return v != null && v != DBNull.Value && Convert.ToInt32(v) == 1;
+    }
+
     private static async Task SavePostMediaAsync(SqlConnection connection, int postId, List<string> mediaUrls)
     {
         const string deleteSql = @"DELETE FROM [App_PostMedia] WHERE [PostId] = @PostId;";
@@ -628,11 +908,30 @@ public class PostController : ControllerBase
                 var url = reader.GetString(0);
                 if (!string.IsNullOrWhiteSpace(url))
                 {
-                    result.Add(url);
+                    result.Add(NormalizeUploadsUrl(url));
                 }
             }
         }
         return result;
+    }
+
+    private static string NormalizeUploadsUrl(string raw)
+    {
+        var value = (raw ?? string.Empty).Trim().Replace('\\', '/');
+        if (string.IsNullOrWhiteSpace(value)) return value;
+
+        var uploadsIndex = value.IndexOf("/uploads/", StringComparison.OrdinalIgnoreCase);
+        if (uploadsIndex >= 0) return value.Substring(uploadsIndex);
+        if (value.StartsWith("uploads/", StringComparison.OrdinalIgnoreCase)) return "/" + value;
+
+        var wwwrootUploadsIndex = value.IndexOf("wwwroot/uploads/", StringComparison.OrdinalIgnoreCase);
+        if (wwwrootUploadsIndex >= 0)
+        {
+            var tail = value.Substring(wwwrootUploadsIndex + "wwwroot/".Length);
+            return "/" + tail.TrimStart('/');
+        }
+
+        return value;
     }
 
     private static PollCreateRequest? ParseAndNormalizePollOrNull(string? pollJson)
@@ -967,25 +1266,77 @@ public class PostController : ControllerBase
         return o?.ToString()?.Trim() ?? string.Empty;
     }
 
+    private static string ResolveMediaExtension(IFormFile media, byte[]? header = null)
+    {
+        var ext = Path.GetExtension(media.FileName);
+        if (!string.IsNullOrWhiteSpace(ext) && ext.Length <= 10)
+            return ext.ToLowerInvariant();
+
+        var contentType = (media.ContentType ?? "").Trim().ToLowerInvariant();
+        var byMime = contentType switch
+        {
+            "image/jpeg" or "image/jpg" => ".jpg",
+            "image/png" => ".png",
+            "image/gif" => ".gif",
+            "image/webp" => ".webp",
+            "image/heic" => ".heic",
+            "image/heif" => ".heif",
+            "video/mp4" => ".mp4",
+            "video/quicktime" => ".mov",
+            "video/webm" => ".webm",
+            "video/x-msvideo" => ".avi",
+            "video/3gpp" => ".3gp",
+            _ => ""
+        };
+
+        if (!string.IsNullOrWhiteSpace(byMime)) return byMime;
+
+        if (header != null && header.Length >= 12)
+        {
+            // JPEG
+            if (header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF) return ".jpg";
+            // PNG
+            if (header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47) return ".png";
+            // GIF
+            if (header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46) return ".gif";
+            // WEBP (RIFF....WEBP)
+            if (header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
+                && header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50) return ".webp";
+            // ftyp box (mp4/mov/heic/heif)
+            if (header[4] == 0x66 && header[5] == 0x74 && header[6] == 0x79 && header[7] == 0x70)
+            {
+                var brand = System.Text.Encoding.ASCII.GetString(header, 8, 4).ToLowerInvariant();
+                if (brand.StartsWith("heic") || brand.StartsWith("heif") || brand.StartsWith("mif1") || brand.StartsWith("msf1")) return ".heic";
+                if (brand.StartsWith("qt")) return ".mov";
+                return ".mp4";
+            }
+        }
+
+        return ".bin";
+    }
+
     private async Task<string> SaveMediaAsync(IFormFile media)
     {
         var uploadsRoot = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), "uploads");
         Directory.CreateDirectory(uploadsRoot);
 
-        var ext = Path.GetExtension(media.FileName);
-        if (string.IsNullOrWhiteSpace(ext) || ext.Length > 10) ext = ".bin";
+        await using var source = media.OpenReadStream();
+        var probe = new byte[64];
+        var read = await source.ReadAsync(probe, 0, probe.Length);
+        var header = read > 0 ? probe.Take(read).ToArray() : Array.Empty<byte>();
+        if (source.CanSeek) source.Seek(0, SeekOrigin.Begin);
+
+        var ext = ResolveMediaExtension(media, header);
 
         var fileName = $"{Guid.NewGuid():N}{ext}";
         var fullPath = Path.Combine(uploadsRoot, fileName);
 
         await using (var fs = System.IO.File.Create(fullPath))
         {
-            await media.CopyToAsync(fs);
+            await source.CopyToAsync(fs);
         }
 
-        
-        var baseUrl = $"{Request.Scheme}://{Request.Host.Value}".TrimEnd('/');
-        return $"{baseUrl}/uploads/{fileName}";
+        return $"/uploads/{fileName}";
     }
 
     private async Task<List<string>> SaveMediaListAsync(List<IFormFile> mediaFiles)
@@ -1028,7 +1379,19 @@ public class PostController : ControllerBase
 
 }
 
-public record CreatePostRequest(string Content, string AuthorLogin, bool? IsImportant, PollCreateRequest? Poll);
+public record CreatePostRequest(
+    string Content,
+    string AuthorLogin,
+    bool? IsImportant,
+    PollCreateRequest? Poll,
+    bool? IsEvent = null,
+    int? EventCoinReward = null,
+    int? EventGrantDelayDays = null,
+    bool? EventGrantInstant = null
+);
+
+public record EventRegistrantMentionItem(string Login, string FullName, string MentionKey, string? AvatarUrl);
+public record EventRegistrantsSearchResponse(bool Success, string Message, List<EventRegistrantMentionItem>? Items);
 
 public record PollCreateRequest(
     string Question,
@@ -1080,7 +1443,11 @@ public record PostItem(
     DateTime? ExpiresAt,
     int LikesCount,
     int CommentsCount,
-    PollItem? Poll);
+    PollItem? Poll,
+    bool IsEvent,
+    int EventCoinReward,
+    bool IsRegistered,
+    List<EventRegistrationItem>? EventRegistrations);
 
 public record CreatePostResponse(bool Success, string Message, PostItem? Post);
 
@@ -1088,3 +1455,6 @@ public record FeedResponse(bool Success, string Message, List<PostItem>? Posts);
 public record DeletePostResponse(bool Success, string Message);
 public record VoteRequest(string Login, int OptionId);
 public record VoteResponse(bool Success, string Message, PollItem? Poll = null);
+public record EventRegisterRequest(string Login);
+public record EventRegisterResponse(bool Success, string Message);
+public record EventRegistrationItem(string Login, string Name, string? AvatarUrl);

@@ -6,7 +6,11 @@ data class CreatePostRequest(
     @SerializedName("content") val content: String,
     @SerializedName("authorLogin") val authorLogin: String,
     @SerializedName("isImportant") val isImportant: Boolean,
-    @SerializedName("poll") val poll: PollCreateRequest? = null
+    @SerializedName("poll") val poll: PollCreateRequest? = null,
+    @SerializedName("isEvent") val isEvent: Boolean? = null,
+    @SerializedName("eventCoinReward") val eventCoinReward: Int? = null,
+    @SerializedName("eventGrantDelayDays") val eventGrantDelayDays: Int? = null,
+    @SerializedName("eventGrantInstant") val eventGrantInstant: Boolean? = null
 )
 
 data class PollCreateRequest(
@@ -63,7 +67,17 @@ data class PostItem(
     @SerializedName("expiresAt") val expiresAt: String?,
     @SerializedName("likesCount") val likesCount: Int,
     @SerializedName("commentsCount") val commentsCount: Int,
-    @SerializedName("poll") val poll: PollItem? = null
+    @SerializedName("poll") val poll: PollItem? = null,
+    @SerializedName("isEvent") val isEvent: Boolean = false,
+    @SerializedName("eventCoinReward") val eventCoinReward: Int = 0,
+    @SerializedName("isRegistered") val isRegistered: Boolean = false,
+    @SerializedName("eventRegistrations") val eventRegistrations: List<EventRegistrationItem>? = null
+)
+
+data class EventRegistrationItem(
+    @SerializedName("login") val login: String,
+    @SerializedName("name") val name: String,
+    @SerializedName("avatarUrl") val avatarUrl: String? = null
 )
 
 data class CreatePostResponse(
@@ -92,4 +106,26 @@ data class VoteResponse(
     @SerializedName("success") val success: Boolean,
     @SerializedName("message") val message: String,
     @SerializedName("poll") val poll: PollItem? = null
+)
+
+data class EventRegisterRequest(
+    @SerializedName("login") val login: String
+)
+
+data class EventRegisterResponse(
+    @SerializedName("success") val success: Boolean,
+    @SerializedName("message") val message: String
+)
+
+data class EventRegistrantMentionItem(
+    @SerializedName("login") val login: String,
+    @SerializedName("fullName") val fullName: String,
+    @SerializedName("mentionKey") val mentionKey: String,
+    @SerializedName("avatarUrl") val avatarUrl: String? = null
+)
+
+data class EventRegistrantsSearchResponse(
+    @SerializedName("success") val success: Boolean,
+    @SerializedName("message") val message: String,
+    @SerializedName("items") val items: List<EventRegistrantMentionItem>? = null
 )

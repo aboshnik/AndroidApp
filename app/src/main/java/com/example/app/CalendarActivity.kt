@@ -2,7 +2,9 @@ package com.example.app
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
 import android.widget.GridLayout
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import com.example.app.api.ApiClient
@@ -52,6 +54,7 @@ class CalendarActivity : BaseActivity() {
             startActivity(Intent(this, HomeActivity::class.java))
         }
         findViewById<android.view.View>(R.id.navChats).setOnClickListener {
+            setBottomTab("chats")
             startActivity(Intent(this, com.example.app.chats.ChatsActivity::class.java))
         }
         findViewById<android.view.View>(R.id.navSettings).setOnClickListener {
@@ -61,12 +64,14 @@ class CalendarActivity : BaseActivity() {
             startActivity(Intent(this, ProfileActivity::class.java))
         }
 
+        setBottomTab("calendar")
         renderMonth()
         loadSchedule()
     }
 
     override fun onResume() {
         super.onResume()
+        setBottomTab("calendar")
         startChatsUnreadBadgeAutoRefresh(employeeId = employeeId, badgeViewId = R.id.navChatsBadge)
     }
 
@@ -111,10 +116,10 @@ class CalendarActivity : BaseActivity() {
                     columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
                     setMargins(4.dp(), 4.dp(), 4.dp(), 4.dp())
                 }
-                minHeight = 42.dp()
+                minHeight = 44.dp()
                 gravity = android.view.Gravity.CENTER
                 textSize = 14f
-                setBackgroundResource(R.drawable.bg_profile_action_row)
+                setBackgroundResource(R.drawable.bg_calendar_day_default)
             }
 
             val dayNum = index - startOffset + 1
@@ -123,15 +128,17 @@ class CalendarActivity : BaseActivity() {
                 cell.text = dayNum.toString()
                 val weekend = date.dayOfWeek == DayOfWeek.SATURDAY || date.dayOfWeek == DayOfWeek.SUNDAY
                 val isVacation = vacationRange?.let { !date.isBefore(it.first) && !date.isAfter(it.second) } == true
-                if (isVacation) {
-                    cell.setBackgroundColor(0xFFBBDEFB.toInt())
-                } else if (weekend) {
-                    cell.setBackgroundColor(0xFFFFCDD2.toInt())
-                }
                 if (date == today) {
-                    cell.setBackgroundResource(R.drawable.bg_profile_action_row)
-                    cell.setTextColor(getColor(R.color.button_primary))
+                    cell.setBackgroundResource(R.drawable.bg_calendar_day_today)
+                    cell.setTextColor(getColor(android.R.color.white))
+                } else if (isVacation) {
+                    cell.setBackgroundResource(R.drawable.bg_calendar_day_vacation)
+                    cell.setTextColor(getColor(R.color.text_primary))
+                } else if (weekend) {
+                    cell.setBackgroundResource(R.drawable.bg_calendar_day_weekend)
+                    cell.setTextColor(0xFFBE185D.toInt())
                 } else {
+                    cell.setBackgroundResource(R.drawable.bg_calendar_day_default)
                     cell.setTextColor(getColor(R.color.text_primary))
                 }
                 cell.setOnClickListener { showDayDialog(date) }
@@ -147,16 +154,46 @@ class CalendarActivity : BaseActivity() {
         val view = layoutInflater.inflate(R.layout.dialog_calendar_day, null, false)
         val title = view.findViewById<TextView>(R.id.tvDialogDateTitle)
         val msg = view.findViewById<TextView>(R.id.tvDialogDateMessage)
+        val cardWork = view.findViewById<View>(R.id.cardWork)
+        val cardSchedule = view.findViewById<View>(R.id.cardSchedule)
+        val cardWeekend = view.findViewById<View>(R.id.cardWeekend)
+        val cardVacation = view.findViewById<View>(R.id.cardVacation)
+        val tvWorkSubtitle = view.findViewById<TextView>(R.id.tvWorkSubtitle)
+        val tvScheduleSubtitle = view.findViewById<TextView>(R.id.tvScheduleSubtitle)
         val btn = view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnDialogOk)
 
-        title.text = date.format(DateTimeFormatter.ofPattern("dd MMMM yyyy", Locale("ru")))
+        title.text = date.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru")))
         val weekend = date.dayOfWeek == DayOfWeek.SATURDAY || date.dayOfWeek == DayOfWeek.SUNDAY
         val vacationRange = getVacationRange()
         val isVacation = vacationRange?.let { !date.isBefore(it.first) && !date.isAfter(it.second) } == true
+        val shiftText = buildShiftText()
+        val hasSchedule = schedule != null
+
+        cardWork.visibility = View.GONE
+        cardSchedule.visibility = View.GONE
+        cardWeekend.visibility = View.GONE
+        cardVacation.visibility = View.GONE
+
         msg.text = when {
             isVacation -> "Отпуск"
             weekend -> "Выходной день"
-            else -> "Рабочий день\n${buildShiftText()}"
+            else -> "Рабочий день"
+        }
+        when {
+            isVacation -> {
+                cardVacation.visibility = View.VISIBLE
+            }
+            weekend -> {
+                cardWeekend.visibility = View.VISIBLE
+            }
+            else -> {
+                cardWork.visibility = View.VISIBLE
+                tvWorkSubtitle.text = "График: ${schedule?.workPattern?.ifBlank { "-" } ?: "-"}"
+                if (hasSchedule) {
+                    cardSchedule.visibility = View.VISIBLE
+                    tvScheduleSubtitle.text = shiftText.removePrefix("График: ")
+                }
+            }
         }
 
         val dialog = safeShowDialog(AlertDialog.Builder(this).setView(view))
@@ -186,4 +223,33 @@ class CalendarActivity : BaseActivity() {
     }
 
     private fun Int.dp(): Int = (this * resources.displayMetrics.density).toInt()
+
+    private fun showContactsDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_contacts, null, false)
+        safeShowDialog(
+            AlertDialog.Builder(this)
+                .setView(view)
+                .setPositiveButton("Закрыть", null)
+        )
+    }
+
+    private fun setBottomTab(tab: String) {
+        val active = getColor(R.color.nav_active)
+        val inactive = getColor(R.color.nav_inactive)
+        fun setItem(containerId: Int, iconId: Int, textId: Int, activeTab: Boolean) {
+            val container = findViewById<View>(containerId)
+            findViewById<ImageView>(iconId).setColorFilter(if (activeTab) active else inactive)
+            val tv = findViewById<TextView>(textId)
+            tv.setTextColor(if (activeTab) active else inactive)
+            tv.setTypeface(null, if (activeTab) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            container.setBackgroundResource(
+                if (activeTab) R.drawable.bg_bottom_nav_item_active
+                else android.R.color.transparent
+            )
+        }
+        setItem(R.id.navHome, R.id.navHomeIcon, R.id.navHomeText, tab == "home")
+        setItem(R.id.navChats, R.id.navChatsIcon, R.id.navChatsText, tab == "chats")
+        setItem(R.id.navSettings, R.id.navSettingsIcon, R.id.navSettingsText, tab == "settings")
+        setItem(R.id.navProfile, R.id.navProfileIcon, R.id.navProfileText, tab == "profile")
+    }
 }

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.SqlClient;
 using EmployeeApi.Services;
 using EmployeeApi.Hubs;
+using EmployeeApi.Services.Coins;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -17,6 +18,7 @@ public class ChatController : ControllerBase
     private readonly IWebHostEnvironment _env;
     private readonly ChatMessageCipher _cipher;
     private readonly IHubContext<ChatRealtimeHub> _chatHub;
+    private readonly ICoinsService _coinsService;
 
     /// <summary>Боты опросов/анкет — не показываем и удаляем данные из БД (идемпотентно).</summary>
     private const string LegacyPollSurveyBotsInSql =
@@ -41,12 +43,14 @@ public class ChatController : ControllerBase
         IConfiguration configuration,
         IWebHostEnvironment env,
         ChatMessageCipher cipher,
-        IHubContext<ChatRealtimeHub> chatHub)
+        IHubContext<ChatRealtimeHub> chatHub,
+        ICoinsService coinsService)
     {
         _configuration = configuration;
         _env = env;
         _cipher = cipher;
         _chatHub = chatHub;
+        _coinsService = coinsService;
     }
 
     [HttpGet("threads")]
@@ -82,7 +86,13 @@ public class ChatController : ControllerBase
             }
 
             var sql = $@"
-                SELECT T.[Id], T.[Type], T.[Title], T.[BotId], T.[CreatedAt],
+                SELECT T.[Id], T.[Type],
+                       CASE
+                           WHEN ISNULL(T.[Type], 'bot') = 'user'
+                                THEN COALESCE(NULLIF(LTRIM(RTRIM(PeerCard.[FullName])), ''), T.[Title])
+                           ELSE T.[Title]
+                       END AS [Title],
+                       T.[BotId], T.[CreatedAt],
                        M.[Text] AS LastText, M.[CreatedAt] AS LastAt, M.[MetaJson] AS LastMetaJson,
                        M.[SenderType] AS LastSenderType, M.[SenderId] AS LastSenderId,
                        M.[Id] AS LastMessageId,
@@ -117,6 +127,15 @@ public class ChatController : ControllerBase
                     WHERE MM2.[ThreadId] = T.[Id]
                       AND MM2.[Id] > ISNULL(R.[LastReadMessageId], 0)
                 ) U
+                OUTER APPLY (
+                    SELECT TOP 1
+                        LTRIM(RTRIM(CONCAT(
+                            COALESCE(TRY_CONVERT(nvarchar(200), C.[Фамилия]), ''),
+                            CASE WHEN COALESCE(TRY_CONVERT(nvarchar(200), C.[Имя]), '') = '' THEN '' ELSE ' ' + COALESCE(TRY_CONVERT(nvarchar(200), C.[Имя]), '') END
+                        ))) AS [FullName]
+                    FROM [Lexema_Кадры_ЛичнаяКарточка] C
+                    WHERE TRY_CONVERT(nvarchar(100), C.[Логин]) = T.[PeerLogin]
+                ) PeerCard
                 LEFT JOIN [App_UserPermissions] P
                   ON P.[Login] = COALESCE(T.[PeerLogin], T.[Title])
                 LEFT JOIN [App_BotProfiles] B
@@ -676,6 +695,142 @@ public class ChatController : ControllerBase
                 Text: text,
                 CreatedAtUtc: DateTime.UtcNow,
                 MetaJson: request.MetaJson,
+                SenderIsTechAdmin: await IsTechAdminAsync(connection, normalizedLogin),
+                IsRead: false,
+                IsEdited: false
+            );
+            return Ok(new SendMessageResponse(true, "OK", msg));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.ToString());
+            return Ok(new SendMessageResponse(false, $"Ошибка: {ex.GetType().Name}: {ex.Message}", null));
+        }
+    }
+
+    [HttpPost("threads/{threadId:int}/coins/transfer")]
+    public async Task<ActionResult<SendMessageResponse>> TransferCoins(int threadId, [FromBody] ChatCoinsTransferRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Login))
+            return BadRequest(new SendMessageResponse(false, "Укажите логин", null));
+        if (threadId <= 0)
+            return BadRequest(new SendMessageResponse(false, "Некорректный threadId", null));
+        if (request.Amount <= 0)
+            return Ok(new SendMessageResponse(false, "Сумма должна быть больше 0", null));
+
+        var connectionString = _configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrEmpty(connectionString))
+            return StatusCode(500, new SendMessageResponse(false, "Не настроено подключение к БД", null));
+
+        try
+        {
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync();
+            await EnsureChatTablesAsync(connection);
+            await EnsureThreadReadsTableAsync(connection);
+            await MaybeEncryptLegacyChatMessagesAsync(connection);
+
+            var normalizedLogin = request.Login.Trim();
+            var ownerLogin = await ResolveOwnerLoginAsync(connection, normalizedLogin);
+            await TouchUserPresenceAsync(connection, ownerLogin);
+
+            const string ownSql = @"
+                SELECT TOP 1 ISNULL([Type], 'bot') AS ThreadType, [PeerLogin]
+                FROM [App_Threads]
+                WHERE [Id] = @Id AND [OwnerLogin] = @Login;";
+            string threadType;
+            string? peerLogin;
+            await using (var own = new SqlCommand(ownSql, connection))
+            {
+                own.Parameters.AddWithValue("@Id", threadId);
+                own.Parameters.AddWithValue("@Login", ownerLogin);
+                await using var ownReader = await own.ExecuteReaderAsync();
+                if (!await ownReader.ReadAsync())
+                    return Ok(new SendMessageResponse(false, "Диалог не найден", null));
+                threadType = ownReader.IsDBNull(0) ? "bot" : ownReader.GetString(0);
+                peerLogin = ownReader.IsDBNull(1) ? null : ownReader.GetString(1);
+            }
+            if (!threadType.Equals("user", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(peerLogin))
+                return Ok(new SendMessageResponse(false, "Передавать коины можно только в личном чате", null));
+
+            var recipientOwnerLogin = peerLogin.Trim();
+            if (recipientOwnerLogin.Equals(ownerLogin, StringComparison.OrdinalIgnoreCase))
+                return Ok(new SendMessageResponse(false, "Нельзя передать коины самому себе", null));
+
+            var amount = request.Amount;
+            var reason = string.IsNullOrWhiteSpace(request.Comment)
+                ? $"Перевод в чате для {recipientOwnerLogin}"
+                : $"Перевод в чате для {recipientOwnerLogin}: {request.Comment!.Trim()}";
+
+            var spend = await _coinsService.SpendCoinsAsync(ownerLogin, amount, reason);
+            if (!spend.Success)
+                return Ok(new SendMessageResponse(false, spend.Message, null));
+
+            var add = await _coinsService.AddCoinsAsync(recipientOwnerLogin, amount, $"Перевод в чате от {ownerLogin}");
+            if (!add.Success)
+            {
+                await _coinsService.AddCoinsAsync(ownerLogin, amount, "Откат перевода коинов (ошибка зачисления)");
+                return Ok(new SendMessageResponse(false, add.Message, null));
+            }
+
+            var senderName = await ResolveDisplayNameByLoginAsync(connection, ownerLogin);
+            var recipientName = await ResolveDisplayNameByLoginAsync(connection, recipientOwnerLogin);
+            var metaObj = new JsonObject
+            {
+                ["type"] = "coin_transfer",
+                ["amount"] = amount,
+                ["fromLogin"] = ownerLogin,
+                ["fromName"] = senderName,
+                ["toLogin"] = recipientOwnerLogin,
+                ["toName"] = recipientName,
+                ["comment"] = request.Comment?.Trim(),
+                ["balanceAfter"] = spend.Balance,
+                ["createdAtUtc"] = DateTime.UtcNow.ToString("O")
+            };
+            var metaJson = metaObj.ToJsonString();
+            var text = $"Передано {amount} коинов";
+
+            const string insSql = @"
+                INSERT INTO [App_Messages] ([ThreadId], [SenderType], [SenderId], [Text], [MetaJson], [CreatedAt])
+                VALUES (@ThreadId, 'user', @SenderId, @Text, @MetaJson, GETUTCDATE());
+                SELECT SCOPE_IDENTITY();";
+            int newId;
+            var textForDb = _cipher.ProtectField(text);
+            var metaForDb = _cipher.ProtectFieldNullable(metaJson);
+            await using (var ins = new SqlCommand(insSql, connection))
+            {
+                ins.Parameters.AddWithValue("@ThreadId", threadId);
+                ins.Parameters.AddWithValue("@SenderId", normalizedLogin);
+                ins.Parameters.AddWithValue("@Text", textForDb);
+                ins.Parameters.AddWithValue("@MetaJson", (object?)metaForDb ?? DBNull.Value);
+                var o = await ins.ExecuteScalarAsync();
+                newId = Convert.ToInt32(o);
+            }
+            await UpsertThreadReadAsync(connection, ownerLogin, threadId, newId);
+
+            var reciprocalThreadId = await EnsureDirectUserThreadAsync(connection, recipientOwnerLogin, ownerLogin);
+            await using (var mirrorIns = new SqlCommand(insSql, connection))
+            {
+                mirrorIns.Parameters.AddWithValue("@ThreadId", reciprocalThreadId);
+                mirrorIns.Parameters.AddWithValue("@SenderId", normalizedLogin);
+                mirrorIns.Parameters.AddWithValue("@Text", textForDb);
+                mirrorIns.Parameters.AddWithValue("@MetaJson", (object?)metaForDb ?? DBNull.Value);
+                var mirroredIdObj = await mirrorIns.ExecuteScalarAsync();
+                var mirroredId = Convert.ToInt32(mirroredIdObj);
+                await UpsertMessageMirrorAsync(connection, ownerMessageId: newId, recipientMessageId: mirroredId);
+            }
+
+            await PublishChatUpdatedAsync(ownerLogin);
+            await PublishChatUpdatedAsync(recipientOwnerLogin);
+
+            var msg = new MessageItem(
+                Id: newId,
+                SenderType: "user",
+                SenderId: normalizedLogin,
+                SenderName: senderName,
+                Text: text,
+                CreatedAtUtc: DateTime.UtcNow,
+                MetaJson: metaJson,
                 SenderIsTechAdmin: await IsTechAdminAsync(connection, normalizedLogin),
                 IsRead: false,
                 IsEdited: false
@@ -2355,6 +2510,18 @@ public class ChatController : ControllerBase
         string normalizedLogin)
     {
         var cmdText = text.Trim();
+        if (cmdText.StartsWith("/coins-add", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!await IsTechAdminAsync(connection, normalizedLogin))
+            {
+                await InsertThreadBotReplyAsync(connection, threadId, threadBotId, "Команда /coins-add доступна только тех. администраторам.");
+                return;
+            }
+
+            var reply = await HandleCoinsAddCommandAsync(connection, cmdText);
+            await InsertThreadBotReplyAsync(connection, threadId, threadBotId, reply);
+            return;
+        }
         if (threadBotId.Equals("StekloMonitor", StringComparison.OrdinalIgnoreCase) &&
             cmdText.Equals("/stats", StringComparison.OrdinalIgnoreCase))
         {
@@ -2364,6 +2531,94 @@ public class ChatController : ControllerBase
             await InsertThreadBotReplyAsync(connection, threadId, "StekloMonitor", body);
             return;
         }
+    }
+
+    private async Task<string> HandleCoinsAddCommandAsync(SqlConnection connection, string cmdText)
+    {
+        // Format:
+        // /coins-add @ИвановИванИванович 5
+        // amount optional, defaults to 5
+        var parts = cmdText.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length < 2)
+            return "Использование: /coins-add @ФамилияИмяОтчество [сумма]. Пример: /coins-add @ИвановИванИванович 5";
+
+        var rawMention = parts[1].Trim();
+        if (!rawMention.StartsWith("@", StringComparison.Ordinal)) return "Укажите человека через @ФИО. Пример: /coins-add @ИвановИванИванович 5";
+        var mentionKey = NormalizeMentionKey(rawMention.Substring(1));
+        if (string.IsNullOrWhiteSpace(mentionKey)) return "Некорректное @ФИО.";
+
+        var amount = 5;
+        if (parts.Length >= 3 && int.TryParse(parts[2], out var parsed))
+            amount = parsed;
+        if (amount <= 0) return "Сумма должна быть больше 0.";
+        if (amount > 100000) amount = 100000;
+
+        var matches = await ResolveEventRegistrantByMentionKeyAsync(connection, mentionKey, take: 5);
+        if (matches.Count == 0)
+            return "Ошибка: человек не найден среди зарегистрировавшихся на мероприятия (или не регистрировался).";
+        if (matches.Count > 1)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Найдено несколько человек. Уточните @ФИО:");
+            foreach (var m in matches)
+                sb.AppendLine($"- @{m.MentionKey} — {m.FullName} ({m.Login})");
+            return sb.ToString().TrimEnd();
+        }
+
+        var target = matches[0];
+        var res = await _coinsService.AddCoinsAsync(target.Login, amount, $"Техадмин /coins-add для {target.FullName}");
+        return res.Success
+            ? $"Начислено: {amount} монет → {target.FullName} ({target.Login}). Баланс: {res.Balance}."
+            : $"Ошибка начисления: {res.Message}";
+    }
+
+    private static string NormalizeMentionKey(string raw)
+    {
+        return (raw ?? "")
+            .Trim()
+            .ToLowerInvariant()
+            .Replace(" ", "")
+            .Replace("-", "")
+            .Replace(".", "");
+    }
+
+    private static async Task<List<(string Login, string FullName, string MentionKey)>> ResolveEventRegistrantByMentionKeyAsync(
+        SqlConnection connection,
+        string mentionKey,
+        int take)
+    {
+        if (take <= 0) take = 5;
+        if (take > 10) take = 10;
+        var mk = NormalizeMentionKey(mentionKey);
+        if (string.IsNullOrWhiteSpace(mk)) return new List<(string, string, string)>();
+
+        const string sql = @"
+            SELECT TOP (@Take)
+                R.[Login],
+                LTRIM(RTRIM(CONCAT(
+                    ISNULL(C.[Фамилия], ''),
+                    CASE WHEN C.[Имя] IS NULL OR LTRIM(RTRIM(C.[Имя])) = '' THEN '' ELSE ' ' + LTRIM(RTRIM(C.[Имя])) END,
+                    CASE WHEN C.[Отчество] IS NULL OR LTRIM(RTRIM(C.[Отчество])) = '' THEN '' ELSE ' ' + LTRIM(RTRIM(C.[Отчество])) END
+                ))) AS FullName,
+                LOWER(REPLACE(REPLACE(REPLACE(CONCAT(ISNULL(C.[Фамилия], ''), ISNULL(C.[Имя], ''), ISNULL(C.[Отчество], '')), ' ', ''), '-', ''), '.', '')) AS MentionKey
+            FROM (SELECT DISTINCT [Login] FROM [App_PostEventRegistrations]) R
+            LEFT JOIN [Lexema_Кадры_ЛичнаяКарточка] C ON C.[Логин] = R.[Login]
+            WHERE LOWER(REPLACE(REPLACE(REPLACE(CONCAT(ISNULL(C.[Фамилия], ''), ISNULL(C.[Имя], ''), ISNULL(C.[Отчество], '')), ' ', ''), '-', ''), '.', '')) = @Key
+            ORDER BY FullName;";
+        var list = new List<(string Login, string FullName, string MentionKey)>();
+        await using var cmd = new SqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@Take", take);
+        cmd.Parameters.AddWithValue("@Key", mk);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var login = reader.IsDBNull(0) ? "" : reader.GetString(0);
+            var name = reader.IsDBNull(1) ? "" : reader.GetString(1);
+            var key = reader.IsDBNull(2) ? mk : reader.GetString(2);
+            if (string.IsNullOrWhiteSpace(login)) continue;
+            list.Add((login, string.IsNullOrWhiteSpace(name) ? login : name, string.IsNullOrWhiteSpace(key) ? mk : key));
+        }
+        return list;
     }
 
     private async Task InsertThreadBotReplyAsync(SqlConnection connection, int threadId, string botId, string text)
@@ -2474,6 +2729,7 @@ public record MessageItem(
 public record MessagesResponse(bool Success, string Message, List<MessageItem>? Messages);
 
 public record SendMessageRequest(string Login, string Text, string? MetaJson = null);
+public record ChatCoinsTransferRequest(string Login, int Amount, string? Comment = null);
 public record SendMessageResponse(bool Success, string Message, MessageItem? Item);
 public record EditMessageRequest(string Login, string Text);
 public record EditMessageResponse(bool Success, string Message, MessageItem? Item);

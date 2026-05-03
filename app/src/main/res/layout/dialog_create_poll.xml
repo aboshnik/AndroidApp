@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="18dp"
+    android:background="@drawable/bg_modal_sheet">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Новый опрос"
+            android:gravity="center"
+            android:textColor="@color/text_primary"
+            android:textStyle="bold"
+            android:textSize="18sp" />
+
+        <TextView
+            android:id="@+id/btnClosePoll"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✕"
+            android:textColor="@color/text_secondary"
+            android:textSize="20sp" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="8dp"
+        android:background="#FFE5E7EB" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:text="Вопрос"
+        android:textColor="@color/button_primary"
+        android:textStyle="bold"
+        android:textSize="12sp" />
+
+    <EditText
+        android:id="@+id/etPollQuestion"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/bg_input_soft"
+        android:hint="Вопрос"
+        android:minHeight="84dp"
+        android:gravity="top|start"
+        android:padding="12dp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_secondary" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="Описание (необязательно)"
+        android:textColor="@color/text_secondary"
+        android:textStyle="bold"
+        android:textSize="12sp" />
+
+    <EditText
+        android:id="@+id/etPollDescription"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/bg_input_soft"
+        android:hint="Описание (необязательно)"
+        android:minHeight="70dp"
+        android:gravity="top|start"
+        android:padding="12dp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_secondary" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Варианты"
+        android:textColor="@color/button_primary"
+        android:textStyle="bold"
+        android:textSize="12sp" />
+
+    <LinearLayout
+        android:id="@+id/pollOptionsContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="vertical" />
+
+    <TextView
+        android:id="@+id/btnAddPollOption"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_dashed_add_option"
+        android:gravity="center"
+        android:text="Добавить вариант"
+        android:textColor="@color/button_primary"
+        android:textStyle="bold" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="vertical"
+        android:background="#FFF8FAFC"
+        android:padding="10dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Показывать кто голосовал"
+                android:textColor="@color/text_primary" />
+            <Switch
+                android:id="@+id/swPollShowVoters"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Разрешить переголосование"
+                android:textColor="@color/text_primary" />
+            <Switch
+                android:id="@+id/swPollAllowRevote"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Перемешивать варианты"
+                android:textColor="@color/text_primary" />
+            <Switch
+                android:id="@+id/swPollShuffle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Скрыть результаты"
+                android:textColor="@color/text_primary" />
+            <Switch
+                android:id="@+id/swPollHideResults"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/btnCreatePoll"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/bg_primary_soft_btn"
+        android:gravity="center"
+        android:text="Создать"
+        android:textColor="@android:color/white"
+        android:textStyle="bold" />
+</LinearLayout>

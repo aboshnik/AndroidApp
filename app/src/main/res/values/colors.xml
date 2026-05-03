@@ -1,29 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
+    <!-- Corporate palette -->
+    <color name="corp_7541">#FFC1D0D3</color>
+    <color name="corp_5513">#FFDDE1E1</color>
+    <color name="corp_3155">#FF196C7F</color>
+    <color name="corp_2216">#FF285055</color>
+
+    <!-- Legacy names kept for compatibility -->
+    <color name="purple_200">@color/corp_5513</color>
+    <color name="purple_500">@color/corp_3155</color>
+    <color name="purple_700">@color/corp_2216</color>
+    <color name="teal_200">@color/corp_5513</color>
+    <color name="teal_700">@color/corp_3155</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     
     <!-- Custom colors -->
-    <color name="background_color">#FFF5F5F5</color>
-    <color name="profile_screen_bg">#FFF9F9F9</color>
-    <color name="profile_card_stroke">#FFAAAAAA</color>
-    <color name="nav_icon">#FFE3E3E3</color>
-    <color name="feed_card_bg">#FFD9D9D9</color>
-    <color name="feed_card_stroke">#FFBDBDBD</color>
-    <color name="feed_icon">#FF374957</color>
-    <color name="feed_date">#FF454545</color>
-    <color name="text_primary">#FF212121</color>
-    <color name="text_secondary">#FF757575</color>
+    <color name="background_color">@color/corp_5513</color>
+    <color name="profile_screen_bg">#FFFFFFFF</color>
+    <color name="profile_card_stroke">#FFB7C7CA</color>
+    <color name="nav_icon">#FF285055</color>
+    <color name="feed_card_bg">#FFFFFFFF</color>
+    <color name="feed_card_stroke">#FFB7C7CA</color>
+    <color name="feed_icon">@color/corp_2216</color>
+    <color name="feed_date">#FF3A555A</color>
+    <color name="text_primary">#FF1F3538</color>
+    <color name="text_secondary">#FF4E666A</color>
     <!-- Основной цвет кнопок (#206877) -->
-    <color name="button_primary">#FF206877</color>
-    <color name="button_secondary">#FF206877</color>
-    <color name="button_support">#FF206877</color>
-    <color name="ic_launcher_background">#FF2196F3</color>
+    <color name="button_primary">@color/corp_3155</color>
+    <color name="button_secondary">@color/corp_3155</color>
+    <color name="button_support">@color/corp_3155</color>
+    <color name="button_primary_dark">@color/corp_2216</color>
+    <!-- Slightly softer tint for icons (less aggressive) -->
+    <color name="icon_tint">#E6196C7F</color>
+    <color name="nav_active">@color/corp_3155</color>
+    <color name="nav_inactive">#CC4E666A</color>
+    <color name="divider_soft">#FFB7C7CA</color>
+    <color name="ic_launcher_background">@color/corp_3155</color>
 
     <!-- Poll editor (light, company accent) -->
     <color name="poll_editor_bg">@color/white</color>
@@ -35,9 +48,9 @@
     <color name="poll_editor_card_stroke">@color/feed_card_stroke</color>
     <color name="poll_editor_accent_bg">#FFE6F3F7</color>
     <!-- Список чатов: исходящее сообщение (как в Telegram) -->
-    <color name="thread_outgoing_check">#FF5DADE2</color>
+    <color name="thread_outgoing_check">@color/corp_3155</color>
     <color name="thread_outgoing_check_unread">#FF9E9E9E</color>
-    <color name="thread_item_selected_bg">#332196F3</color>
+    <color name="thread_item_selected_bg">#33285055</color>
 
     <!-- Telegram-like (dark) -->
     <color name="tg_bg">#FF0E1621</color>
@@ -46,5 +59,7 @@
     <color name="tg_text">#FFF5F5F5</color>
     <color name="tg_text_secondary">#FF8E9AA7</color>
     <color name="tg_accent">#FF4EA4F6</color>
+    <color name="shop_purple">@color/button_primary</color>
+    <color name="shop_purple_dark">#FF195561</color>
 </resources>
 

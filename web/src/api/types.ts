@@ -68,6 +68,8 @@ export type EmployeeProfile = {
   level: number
   experience: number
   xpToNext: number
+  coinBalance?: number
+  nextPayoutDays?: number
 }
 
 export type EmployeeProfileResponse = {
@@ -299,6 +301,8 @@ export type PostItem = {
   likesCount: number
   commentsCount: number
   poll?: PollItem | null
+  isEvent?: boolean
+  isRegistered?: boolean
 }
 
 export type CreatePostRequest = {
@@ -306,6 +310,7 @@ export type CreatePostRequest = {
   authorLogin: string
   isImportant: boolean
   poll?: PollCreateRequest | null
+  isEvent?: boolean
 }
 
 export type CreatePostResponse = {
@@ -334,4 +339,26 @@ export type VoteResponse = {
   success: boolean
   message: string
   poll?: PollItem | null
+}
+
+export type EventRegistrantMentionItem = {
+  login: string
+  fullName: string
+  mentionKey: string
+  avatarUrl?: string | null
+}
+
+export type EventRegistrantsSearchResponse = {
+  success: boolean
+  message: string
+  items: EventRegistrantMentionItem[] | null
+}
+
+export type EventRegisterRequest = {
+  login: string
+}
+
+export type EventRegisterResponse = {
+  success: boolean
+  message: string
 }

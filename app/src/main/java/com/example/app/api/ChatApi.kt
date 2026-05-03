@@ -68,6 +68,12 @@ data class SendMessageRequest(
     @SerializedName("metaJson") val metaJson: String? = null
 )
 
+data class ChatCoinsTransferRequest(
+    @SerializedName("login") val login: String,
+    @SerializedName("amount") val amount: Int,
+    @SerializedName("comment") val comment: String? = null
+)
+
 data class SendMessageResponse(
     @SerializedName("success") val success: Boolean,
     @SerializedName("message") val message: String,

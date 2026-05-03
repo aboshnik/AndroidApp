@@ -6,6 +6,7 @@ import { CreatePostPage } from '../features/home/CreatePostPage'
 import { ThreadsPage } from '../features/chats/ThreadsPage'
 import { ChatPage } from '../features/chats/ChatPage'
 import { ProfilePage } from '../features/profile/ProfilePage'
+import { ShopPage } from '../features/shop/ShopPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
 import { getSession } from '../shared/session'
 
@@ -119,6 +120,16 @@ export function AppRouter() {
         }
       />
       <Route
+        path="/shop"
+        element={
+          <RequireAuth>
+            <ShellLayout>
+              <ShopPage />
+            </ShellLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
         path="/iphone/home"
         element={
           <RequireAuth>
@@ -174,6 +185,16 @@ export function AppRouter() {
           <RequireAuth>
             <ShellLayout basePath="/iphone" forceMobile>
               <ProfilePage />
+            </ShellLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/iphone/shop"
+        element={
+          <RequireAuth>
+            <ShellLayout basePath="/iphone" forceMobile>
+              <ShopPage />
             </ShellLayout>
           </RequireAuth>
         }

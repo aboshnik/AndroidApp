@@ -17,9 +17,11 @@ class RegisterActivity : BaseActivity() {
         val etEmployeeId = findViewById<EditText>(R.id.etEmployeeId)
         val etPhone = findViewById<EditText>(R.id.etPhone)
         val btn = findViewById<android.view.View>(R.id.btnRegisterNow)
-        val btnBack = findViewById<android.view.View>(R.id.btnRegisterBack)
+        val btnBack = findViewById<android.view.View>(R.id.btnLoginInstead)
+        val btnHeaderBack = findViewById<android.view.View>(R.id.btnRegisterBack)
 
         btnBack.setOnClickListener { finish() }
+        btnHeaderBack.setOnClickListener { finish() }
 
         btn.setOnClickListener {
             val employeeId = etEmployeeId.text?.toString()?.trim().orEmpty()

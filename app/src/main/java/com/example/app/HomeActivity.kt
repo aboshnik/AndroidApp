@@ -13,6 +13,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.app.api.ApiClient
 import com.example.app.api.PollItem
 import com.example.app.api.PostItem
+import com.example.app.api.EventRegisterRequest
 import com.example.app.api.VoteRequest
 import com.example.app.chats.ChatsActivity
 import kotlinx.coroutines.Dispatchers
@@ -59,15 +60,17 @@ class HomeActivity : BaseActivity() {
         adapter = HomeFeedAdapter(
             canDeletePosts = canDeletePosts,
             onDeletePost = { post -> deletePost(post.id) },
-            onVote = { postId, optionId, onDone -> vote(postId, optionId, onDone) }
+            onVote = { postId, optionId, onDone -> vote(postId, optionId, onDone) },
+            onRegisterEvent = { postId -> registerEvent(postId) },
+            currentLogin = login
         )
         recycler.layoutManager = LinearLayoutManager(this)
         recycler.adapter = adapter
 
         findViewById<View>(R.id.btnCreateNews).setOnClickListener {
             openCreatePost.launch(Intent(this, CreatePostActivity::class.java))
+            overridePendingTransition(R.anim.fade_in_fast, R.anim.fade_out_fast)
         }
-
         findViewById<View>(R.id.navHome).setOnClickListener { setBottomTab("home") }
         findViewById<View>(R.id.navChats).setOnClickListener {
             setBottomTab("chats")
@@ -80,6 +83,10 @@ class HomeActivity : BaseActivity() {
         findViewById<View>(R.id.navProfile).setOnClickListener {
             setBottomTab("profile")
             startActivity(Intent(this, ProfileActivity::class.java))
+        }
+        findViewById<View>(R.id.navContacts).setOnClickListener {
+            setBottomTab("store")
+            startActivity(Intent(this, ShopActivity::class.java))
         }
 
         setBottomTab("home")
@@ -102,18 +109,24 @@ class HomeActivity : BaseActivity() {
     }
 
     private fun setBottomTab(tab: String) {
-        val active = getColor(R.color.button_primary)
-        val inactive = getColor(R.color.text_secondary)
-        fun setItem(iconId: Int, textId: Int, activeTab: Boolean) {
+        val active = getColor(R.color.nav_active)
+        val inactive = getColor(R.color.nav_inactive)
+        fun setItem(containerId: Int, iconId: Int, textId: Int, activeTab: Boolean) {
+            val container = findViewById<View>(containerId)
             findViewById<ImageView>(iconId).setColorFilter(if (activeTab) active else inactive)
             val tv = findViewById<TextView>(textId)
             tv.setTextColor(if (activeTab) active else inactive)
             tv.setTypeface(null, if (activeTab) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            container.setBackgroundResource(
+                if (activeTab) R.drawable.bg_bottom_nav_item_active
+                else android.R.color.transparent
+            )
         }
-        setItem(R.id.navHomeIcon, R.id.navHomeText, tab == "home")
-        setItem(R.id.navChatsIcon, R.id.navChatsText, tab == "chats")
-        setItem(R.id.navSettingsIcon, R.id.navSettingsText, tab == "settings")
-        setItem(R.id.navProfileIcon, R.id.navProfileText, tab == "profile")
+        setItem(R.id.navHome, R.id.navHomeIcon, R.id.navHomeText, tab == "home")
+        setItem(R.id.navChats, R.id.navChatsIcon, R.id.navChatsText, tab == "chats")
+        setItem(R.id.navSettings, R.id.navSettingsIcon, R.id.navSettingsText, tab == "settings")
+        setItem(R.id.navProfile, R.id.navProfileIcon, R.id.navProfileText, tab == "profile")
+        setItem(R.id.navContacts, R.id.navContactsIcon, R.id.navContactsText, tab == "store")
     }
 
     private fun loadFeed() {
@@ -184,6 +197,35 @@ class HomeActivity : BaseActivity() {
                 safeToast("${getString(R.string.error_network)} ${e.message}", long = true)
             }
         }
+    }
+
+    private fun registerEvent(postId: Int) {
+        if (login.isBlank()) return
+        scope.launch {
+            try {
+                val resp = withContext(Dispatchers.IO) {
+                    ApiClient.postApi.registerEvent(postId, EventRegisterRequest(login))
+                }
+                val body = resp.body()
+                if (!resp.isSuccessful || body == null || !body.success) {
+                    safeToast(body?.message ?: getString(R.string.error_network), long = true)
+                    return@launch
+                }
+                safeToast(body.message.ifBlank { "Регистрация выполнена" })
+                loadFeed()
+            } catch (e: Exception) {
+                safeToast("${getString(R.string.error_network)} ${e.message}", long = true)
+            }
+        }
+    }
+
+    private fun showContactsDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_contacts, null, false)
+        safeShowDialog(
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setView(view)
+                .setPositiveButton("Закрыть", null)
+        )
     }
 }
 

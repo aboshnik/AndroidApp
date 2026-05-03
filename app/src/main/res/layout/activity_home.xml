@@ -4,45 +4,84 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/poll_editor_bg">
+    android:background="#FFF9FAFB">
 
     <LinearLayout
         android:id="@+id/topBarHome"
         android:layout_width="0dp"
-        android:layout_height="56dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
         android:paddingHorizontal="12dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="12dp"
+        android:background="@drawable/bg_home_header"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <TextView
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Главная"
-            android:textColor="@color/text_primary"
-            android:textSize="18sp"
-            android:textStyle="bold" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/btnCreateNews"
-            android:layout_width="wrap_content"
-            android:layout_height="34dp"
-            android:gravity="center"
-            android:paddingHorizontal="12dp"
-            android:text="+ Новость"
-            android:textColor="@color/button_primary"
-            android:textStyle="bold"
-            android:background="@drawable/bg_feed_action_button_ripple" />
+            <ImageButton
+                android:id="@+id/btnCreateNews"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_home_header_circle"
+                android:src="@drawable/ic_feed_plus"
+                android:tint="@android:color/white"
+                android:contentDescription="Создать новость" />
+
+            <ImageView
+                android:id="@+id/ivHomeAvatar"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_home_header_circle"
+                android:padding="10dp"
+                android:src="@drawable/ic_nav_profile"
+                android:tint="@android:color/white"
+                android:contentDescription="Профиль" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="10dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Главная"
+                    android:textColor="@android:color/white"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Корпоративный портал"
+                    android:textColor="#FFDBEAFE"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+        </LinearLayout>
+
     </LinearLayout>
 
-    <View
-        android:id="@+id/homeDivider"
+    <TextView
+        android:id="@+id/tvNewsTitle"
         android:layout_width="0dp"
-        android:layout_height="1dp"
-        android:background="@color/poll_editor_divider"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:layout_marginHorizontal="12dp"
+        android:text="Лента новостей"
+        android:textColor="#FF111827"
+        android:textSize="20sp"
+        android:textStyle="bold"
         app:layout_constraintTop_toBottomOf="@id/topBarHome"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
@@ -51,7 +90,7 @@
         android:id="@+id/homeProgress"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        app:layout_constraintTop_toBottomOf="@id/homeDivider"
+        app:layout_constraintTop_toBottomOf="@id/tvNewsTitle"
         app:layout_constraintBottom_toTopOf="@id/bottomNavHome"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
@@ -64,7 +103,7 @@
         android:padding="18dp"
         android:textColor="@color/text_secondary"
         android:visibility="gone"
-        app:layout_constraintTop_toBottomOf="@id/homeDivider"
+        app:layout_constraintTop_toBottomOf="@id/tvNewsTitle"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
@@ -73,9 +112,10 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:paddingHorizontal="12dp"
-        android:paddingBottom="8dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="10dp"
         android:clipToPadding="false"
-        app:layout_constraintTop_toBottomOf="@id/homeDivider"
+        app:layout_constraintTop_toBottomOf="@id/tvNewsTitle"
         app:layout_constraintBottom_toTopOf="@id/bottomNavHome"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
@@ -84,6 +124,7 @@
         android:id="@+id/bottomNavHome"
         android:layout_width="0dp"
         android:layout_height="64dp"
+        android:elevation="12dp"
         android:orientation="horizontal"
         android:gravity="center"
         android:paddingHorizontal="10dp"
@@ -107,17 +148,19 @@
                 android:layout_width="22dp"
                 android:layout_height="22dp"
                 android:src="@drawable/ic_nav_home"
-                android:tint="@color/button_primary"
+                android:tint="@color/text_secondary"
                 android:contentDescription="Главная" />
 
             <TextView
                 android:id="@+id/navHomeText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="5dp"
                 android:text="Главная"
-                android:textColor="@color/button_primary"
-                android:textStyle="bold" />
+                android:textColor="@color/text_secondary"
+                android:textSize="10sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
         </LinearLayout>
 
         <LinearLayout
@@ -163,9 +206,12 @@
                 android:id="@+id/navChatsText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="5dp"
                 android:text="Чаты"
-                android:textColor="@color/text_secondary" />
+                android:textColor="@color/text_secondary"
+                android:textSize="10sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
         </LinearLayout>
 
         <LinearLayout
@@ -190,9 +236,12 @@
                 android:id="@+id/navSettingsText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="5dp"
                 android:text="Настройки"
-                android:textColor="@color/text_secondary" />
+                android:textColor="@color/text_secondary"
+                android:textSize="10sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
         </LinearLayout>
 
         <LinearLayout
@@ -217,9 +266,42 @@
                 android:id="@+id/navProfileText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="5dp"
                 android:text="Профиль"
-                android:textColor="@color/text_secondary" />
+                android:textColor="@color/text_secondary"
+                android:textSize="10sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/navContacts"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingVertical="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <ImageView
+                android:id="@+id/navContactsIcon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_nav_calendar"
+                android:tint="@color/text_secondary"
+                android:contentDescription="Магазин" />
+
+            <TextView
+                android:id="@+id/navContactsText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="Магазин"
+                android:textColor="@color/text_secondary"
+                android:textSize="10sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
         </LinearLayout>
     </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>
